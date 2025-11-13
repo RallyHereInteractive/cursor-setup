@@ -287,13 +287,98 @@ Write-Host ""
 
 # Step 6: Install MCP dependencies (if needed)
 Write-ColorOutput "Step 6: Checking for MCP dependencies..." "Cyan"
-# Check if Node.js is installed for MCP servers
-if (Test-CommandExists "node") {
-    $nodeVersion = node --version
-    Write-ColorOutput "Node.js is installed: $nodeVersion" "Green"
+
+# Check if nvm is installed
+$nvmInstalled = $false
+if (Test-CommandExists "nvm") {
+    Write-ColorOutput "nvm (Node Version Manager) is already installed." "Green"
+    $nvmInstalled = $true
 } else {
-    Write-ColorOutput "Node.js is not installed. Installing for MCP support..." "Yellow"
-    Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+    Write-ColorOutput "Installing nvm-windows (Node Version Manager)..." "Yellow"
+    $nvmInstalled = Install-WithWinget "CoreyButler.NVMforWindows" "nvm-windows"
+    
+    if ($nvmInstalled) {
+        # Refresh PATH to include nvm
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        # Wait a moment for PATH to propagate
+        Start-Sleep -Seconds 2
+        
+        # Verify nvm is now available
+        if (Test-CommandExists "nvm") {
+            Write-ColorOutput "nvm-windows installed successfully!" "Green"
+        } else {
+            Write-ColorOutput "Warning: nvm installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+            Write-ColorOutput "Continuing with installation..." "Yellow"
+        }
+    }
+}
+
+# Install Node.js LTS using nvm
+if ($nvmInstalled -or (Test-CommandExists "nvm")) {
+    # Check if Node.js is already installed via nvm
+    if (Test-CommandExists "node") {
+        $nodeVersion = node --version
+        Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
+    } else {
+        Write-ColorOutput "Installing Node.js LTS via nvm..." "Yellow"
+        try {
+            # Use nvm to install the latest LTS version
+            $nvmOutput = nvm install lts 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0) {
+                # Extract version number from output if available, otherwise try to use 'lts'
+                $versionMatch = [regex]::Match($nvmOutput, 'v(\d+\.\d+\.\d+)')
+                if ($versionMatch.Success) {
+                    $installedVersion = $versionMatch.Groups[1].Value
+                    nvm use $installedVersion | Out-Null
+                    Write-ColorOutput "Node.js LTS installed successfully! (v$installedVersion)" "Green"
+                } else {
+                    # Try using 'lts' as alias, or list and use the latest installed version
+                    nvm use lts 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) {
+                        # List installed versions and use the latest
+                        $installedVersions = nvm list | Select-String -Pattern 'v\d+\.\d+\.\d+' | ForEach-Object { $_.Matches.Value }
+                        if ($installedVersions.Count -gt 0) {
+                            $latestVersion = $installedVersions[0] -replace 'v', ''
+                            nvm use $latestVersion | Out-Null
+                            Write-ColorOutput "Node.js LTS installed successfully! (v$latestVersion)" "Green"
+                        } else {
+                            Write-ColorOutput "Node.js LTS installed, but could not determine version" "Yellow"
+                        }
+                    } else {
+                        Write-ColorOutput "Node.js LTS installed successfully!" "Green"
+                    }
+                }
+                
+                # Refresh PATH again after nvm install
+                $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                
+                # Verify installation
+                Start-Sleep -Seconds 2
+                if (Test-CommandExists "node") {
+                    $nodeVersion = node --version
+                    $npmVersion = npm --version
+                    Write-ColorOutput "Node.js version: $nodeVersion" "Gray"
+                    Write-ColorOutput "npm version: $npmVersion" "Gray"
+                } else {
+                    Write-ColorOutput "Warning: Node.js installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+                }
+            } else {
+                Write-ColorOutput "Failed to install Node.js via nvm. Exit code: $LASTEXITCODE" "Red"
+                Write-ColorOutput "Output: $nvmOutput" "Yellow"
+            }
+        } catch {
+            Write-ColorOutput "Error installing Node.js via nvm: $_" "Red"
+        }
+    }
+} else {
+    Write-ColorOutput "nvm is not available. Falling back to direct Node.js installation..." "Yellow"
+    if (-not (Test-CommandExists "node")) {
+        Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
+    } else {
+        $nodeVersion = node --version
+        Write-ColorOutput "Node.js is already installed: $nodeVersion" "Green"
+    }
 }
 Write-Host ""
 

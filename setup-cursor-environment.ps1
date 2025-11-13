@@ -1,9 +1,8 @@
-# Cursor Development Environment Setup Script for Game Studio
-# This script installs Git, Cursor, and configures the development environment
+# Cursor Setup Script - Installs Git, Cursor, and development tools
 
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$RepositoryUrl,
+    [Parameter(Mandatory=$false)]
+    [string]$RepositoryUrl = "https://github.com/RallyHereInteractive/cursor-setup.git",
     
     [Parameter(Mandatory=$false)]
     [string]$CloneDirectory = "$env:USERPROFILE\cursor-studio-setup"
@@ -22,7 +21,7 @@ function Write-ColorOutput {
 }
 
 Write-ColorOutput "============================================" "Cyan"
-Write-ColorOutput "Game Studio Cursor Environment Setup Script" "Cyan"
+Write-ColorOutput "Cursor Setup - Installing Components..." "Cyan"
 Write-ColorOutput "============================================" "Cyan"
 Write-Host ""
 
@@ -31,13 +30,8 @@ $currentPrincipal = New-Object Security.Principal.WindowsPrincipal([Security.Pri
 $isAdmin = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
-    Write-ColorOutput "Warning: This script is not running as Administrator." "Yellow"
-    Write-ColorOutput "Some installations might fail. Consider running as Administrator." "Yellow"
+    Write-ColorOutput "Note: Running without Administrator privileges. Some features may be limited." "Yellow"
     Write-Host ""
-    $continue = Read-Host "Do you want to continue anyway? (Y/N)"
-    if ($continue -ne 'Y' -and $continue -ne 'y') {
-        exit 1
-    }
 }
 
 # Function to check if a command exists
@@ -69,7 +63,7 @@ function Install-WithWinget {
             return $false
         }
     } catch {
-        Write-ColorOutput "Error installing $DisplayName: $_" "Red"
+        Write-ColorOutput "Error installing ${DisplayName}: $_" "Red"
         return $false
     }
 }
@@ -140,14 +134,10 @@ Write-Host ""
 Write-ColorOutput "Step 4: Cloning studio configuration repository..." "Cyan"
 if ($gitInstalled -or (Test-CommandExists "git")) {
     if (Test-Path $CloneDirectory) {
-        Write-ColorOutput "Directory $CloneDirectory already exists." "Yellow"
-        $overwrite = Read-Host "Do you want to delete it and clone fresh? (Y/N)"
-        if ($overwrite -eq 'Y' -or $overwrite -eq 'y') {
-            Remove-Item -Path $CloneDirectory -Recurse -Force
-            Write-ColorOutput "Directory removed." "Gray"
-        } else {
-            Write-ColorOutput "Skipping repository clone." "Yellow"
-        }
+        Write-ColorOutput "Updating existing repository..." "Yellow"
+        Push-Location $CloneDirectory
+        git pull origin main 2>$null
+        Pop-Location
     }
     
     if (-not (Test-Path $CloneDirectory)) {
@@ -207,11 +197,8 @@ if (Test-CommandExists "node") {
     $nodeVersion = node --version
     Write-ColorOutput "Node.js is installed: $nodeVersion" "Green"
 } else {
-    Write-ColorOutput "Node.js is not installed. Some MCP features may require it." "Yellow"
-    $installNode = Read-Host "Do you want to install Node.js? (Y/N)"
-    if ($installNode -eq 'Y' -or $installNode -eq 'y') {
-        Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
-    }
+    Write-ColorOutput "Node.js is not installed. Installing for MCP support..." "Yellow"
+    Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
 }
 Write-Host ""
 
@@ -228,22 +215,11 @@ Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "Wh
 Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
 Write-Host ""
 
-# Open the clone directory in File Explorer
-$openFolder = Read-Host "Would you like to open the setup folder now? (Y/N)"
-if ($openFolder -eq 'Y' -or $openFolder -eq 'y') {
-    Start-Process explorer.exe -ArgumentList $CloneDirectory
-}
-
-# Ask if they want to launch Cursor
-$launchCursor = Read-Host "Would you like to launch Cursor now? (Y/N)"
-if ($launchCursor -eq 'Y' -or $launchCursor -eq 'y') {
-    if (Test-Path $cursorPath) {
-        Start-Process $cursorPath
-    } else {
-        Write-ColorOutput "Could not find Cursor executable. Please launch it manually." "Yellow"
-    }
+# Launch Cursor if installed
+if (Test-Path $cursorPath) {
+    Write-ColorOutput "Launching Cursor..." "Green"
+    Start-Process $cursorPath -ArgumentList $CloneDirectory
 }
 
 Write-Host ""
-Write-ColorOutput "Script completed. Press any key to exit..." "Gray"
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-ColorOutput "Setup complete!" "Green"

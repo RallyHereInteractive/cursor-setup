@@ -51,7 +51,7 @@ function Install-WithWinget {
     Write-ColorOutput "Installing $DisplayName..." "Green"
     
     try {
-        $result = winget install --id $PackageId --silent --accept-package-agreements --accept-source-agreements
+        winget install --id $PackageId --silent --accept-package-agreements --accept-source-agreements | Out-Null
         if ($LASTEXITCODE -eq 0) {
             Write-ColorOutput "$DisplayName installed successfully!" "Green"
             return $true
@@ -154,6 +154,76 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
 }
 Write-Host ""
 
+# Function to merge MCP configurations
+function Merge-MCPConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [string]$NewConfigPath
+    )
+    
+    $mergedServers = @{}
+    
+    # Load existing config if it exists
+    if (Test-Path $ExistingConfigPath) {
+        try {
+            $existingContent = Get-Content $ExistingConfigPath -Raw | ConvertFrom-Json
+            if ($existingContent.mcpServers) {
+                foreach ($serverName in $existingContent.mcpServers.PSObject.Properties.Name) {
+                    $mergedServers[$serverName] = $existingContent.mcpServers.$serverName
+                }
+                Write-ColorOutput "Found existing MCP configuration with $($mergedServers.Count) server(s)" "Gray"
+            }
+        } catch {
+            Write-ColorOutput "Warning: Could not parse existing MCP config: $_" "Yellow"
+        }
+    }
+    
+    # Load new config from repository and merge
+    if (Test-Path $NewConfigPath) {
+        try {
+            $newContent = Get-Content $NewConfigPath -Raw | ConvertFrom-Json
+            if ($newContent.mcpServers) {
+                $addedCount = 0
+                foreach ($serverName in $newContent.mcpServers.PSObject.Properties.Name) {
+                    if (-not $mergedServers.ContainsKey($serverName)) {
+                        $mergedServers[$serverName] = $newContent.mcpServers.$serverName
+                        $addedCount++
+                        Write-ColorOutput "  Added MCP server: $serverName" "Green"
+                    } else {
+                        Write-ColorOutput "  MCP server '$serverName' already exists, preserving existing configuration" "Yellow"
+                    }
+                }
+                if ($addedCount -eq 0) {
+                    Write-ColorOutput "All required MCP servers are already configured" "Green"
+                }
+            }
+        } catch {
+            Write-ColorOutput "Warning: Could not parse new MCP config: $_" "Yellow"
+        }
+    }
+    
+    # Save merged config
+    try {
+        # Convert hashtable to PSCustomObject for proper JSON serialization
+        $mcpServersObj = New-Object PSObject
+        foreach ($key in $mergedServers.Keys) {
+            $mcpServersObj | Add-Member -MemberType NoteProperty -Name $key -Value $mergedServers[$key]
+        }
+        
+        $mergedConfigObj = [PSCustomObject]@{
+            mcpServers = $mcpServersObj
+        }
+        
+        $jsonContent = $mergedConfigObj | ConvertTo-Json -Depth 10
+        $jsonContent | Set-Content $ExistingConfigPath -Encoding UTF8
+        Write-ColorOutput "MCP configuration updated successfully!" "Green"
+        return $true
+    } catch {
+        Write-ColorOutput "Error saving MCP config: $_" "Red"
+        return $false
+    }
+}
+
 # Step 5: Set up Cursor configuration
 Write-ColorOutput "Step 5: Setting up Cursor configuration..." "Cyan"
 $cursorConfigPath = "$env:APPDATA\Cursor\User"
@@ -174,18 +244,47 @@ if (Test-Path $CloneDirectory) {
         # You'll need to verify the correct location for Cursor rules
     }
     
+    # Only copy settings.json if it doesn't already exist
     if (Test-Path $settingsSource) {
-        Write-ColorOutput "Copying Cursor settings..." "Yellow"
         $settingsDest = "$cursorConfigPath\settings.json"
         
         if (Test-Path $settingsDest) {
-            $backup = "$settingsDest.backup_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-            Copy-Item $settingsDest $backup
-            Write-ColorOutput "Backed up existing settings to: $backup" "Gray"
+            Write-ColorOutput "Cursor settings.json already exists, skipping to preserve your configuration" "Yellow"
+        } else {
+            Write-ColorOutput "Creating Cursor settings.json..." "Yellow"
+            Copy-Item $settingsSource $settingsDest -Force
+            Write-ColorOutput "Settings created successfully!" "Green"
         }
-        
-        Copy-Item $settingsSource $settingsDest -Force
-        Write-ColorOutput "Settings copied successfully!" "Green"
+    }
+    
+    # Set up MCP configuration (merge, don't overwrite)
+    # Cursor stores MCP config in the User directory
+    Write-ColorOutput "Configuring MCP servers..." "Yellow"
+    
+    # Try common MCP config locations for Cursor
+    $mcpConfigPaths = @(
+        "$cursorConfigPath\mcp_settings.json",
+        "$cursorConfigPath\mcp.json"
+    )
+    
+    # Check if MCP config already exists in any common location
+    $existingMcpConfig = $null
+    foreach ($path in $mcpConfigPaths) {
+        if (Test-Path $path) {
+            $existingMcpConfig = $path
+            Write-ColorOutput "Found existing MCP config at: $path" "Gray"
+            break
+        }
+    }
+    
+    # Use the first path as default if none exists
+    $mcpConfigPath = if ($existingMcpConfig) { $existingMcpConfig } else { $mcpConfigPaths[0] }
+    $mcpConfigSource = "$CloneDirectory\sample-mcp-config.json"
+    
+    if (Test-Path $mcpConfigSource) {
+        Merge-MCPConfig -ExistingConfigPath $mcpConfigPath -NewConfigPath $mcpConfigSource
+    } else {
+        Write-ColorOutput "Sample MCP config not found at: $mcpConfigSource" "Yellow"
     }
 }
 Write-Host ""

@@ -258,27 +258,23 @@ if (Test-Path $CloneDirectory) {
     }
     
     # Set up MCP configuration (merge, don't overwrite)
-    # Cursor stores MCP config in the User directory
+    # Cursor stores MCP config in ~\.cursor\mcp.json
     Write-ColorOutput "Configuring MCP servers..." "Yellow"
     
-    # Try common MCP config locations for Cursor
-    $mcpConfigPaths = @(
-        "$cursorConfigPath\mcp_settings.json",
-        "$cursorConfigPath\mcp.json"
-    )
+    # Default MCP config location for Cursor
+    $cursorMcpConfigDir = "$env:USERPROFILE\.cursor"
+    $mcpConfigPath = "$cursorMcpConfigDir\mcp.json"
     
-    # Check if MCP config already exists in any common location
-    $existingMcpConfig = $null
-    foreach ($path in $mcpConfigPaths) {
-        if (Test-Path $path) {
-            $existingMcpConfig = $path
-            Write-ColorOutput "Found existing MCP config at: $path" "Gray"
-            break
-        }
+    # Ensure .cursor directory exists
+    if (-not (Test-Path $cursorMcpConfigDir)) {
+        New-Item -ItemType Directory -Path $cursorMcpConfigDir -Force | Out-Null
+        Write-ColorOutput "Created .cursor directory at: $cursorMcpConfigDir" "Gray"
     }
     
-    # Use the first path as default if none exists
-    $mcpConfigPath = if ($existingMcpConfig) { $existingMcpConfig } else { $mcpConfigPaths[0] }
+    # Check if MCP config already exists
+    if (Test-Path $mcpConfigPath) {
+        Write-ColorOutput "Found existing MCP config at: $mcpConfigPath" "Gray"
+    }
     $mcpConfigSource = "$CloneDirectory\sample-mcp-config.json"
     
     if (Test-Path $mcpConfigSource) {

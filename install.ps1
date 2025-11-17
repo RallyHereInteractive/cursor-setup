@@ -157,27 +157,23 @@ Write-Host ""
 # Step 4: Install Cursor
 Write-ColorOutput "Step 4: Installing Cursor..." "Cyan"
 $cursorPath = "$env:LOCALAPPDATA\Programs\cursor\Cursor.exe"
+$cursorInstalled = $false
 if (Test-Path $cursorPath) {
     Write-ColorOutput "Cursor is already installed." "Yellow"
+    $cursorInstalled = $true
 } else {
-    # Note: Cursor might not be available via winget yet, so we'll use direct download
-    Write-ColorOutput "Downloading Cursor installer..." "Yellow"
-    $cursorInstallerUrl = "https://downloader.cursor.sh/windows/nsis/x64"
-    $cursorInstallerPath = "$env:TEMP\CursorInstaller.exe"
-    
-    try {
-        Invoke-WebRequest -Uri $cursorInstallerUrl -OutFile $cursorInstallerPath -UseBasicParsing
-        Write-ColorOutput "Installing Cursor..." "Yellow"
-        Start-Process -FilePath $cursorInstallerPath -ArgumentList "/S" -Wait
-        
+    $cursorInstalled = Install-WithWinget "Anysphere.Cursor" "Cursor"
+    if ($cursorInstalled) {
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        # Wait a moment for installation to complete
+        Start-Sleep -Seconds 2
+        # Verify installation
         if (Test-Path $cursorPath) {
-            Write-ColorOutput "Cursor installed successfully!" "Green"
+            Write-ColorOutput "Cursor installation verified!" "Green"
         } else {
-            Write-ColorOutput "Cursor installation may have failed. Please install manually from https://cursor.sh" "Red"
+            Write-ColorOutput "Note: Cursor may be installed but path verification failed. Try launching from Start Menu." "Yellow"
         }
-    } catch {
-        Write-ColorOutput "Failed to download/install Cursor: $_" "Red"
-        Write-ColorOutput "Please install Cursor manually from https://cursor.sh" "Yellow"
     }
 }
 Write-Host ""

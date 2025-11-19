@@ -459,13 +459,37 @@ function Normalize-MCPPaths {
     
     $homePath = $env:USERPROFILE
     
+    # Helper function to normalize a single path string
+    function Normalize-PathString {
+        param([string]$Path)
+        
+        if ([string]::IsNullOrEmpty($Path)) {
+            return $Path
+        }
+        
+        # Replace ~/ or ~\ at the start with home directory path
+        # Need to ensure proper path separator after home directory
+        if ($Path -match '^~[/\\]') {
+            # Remove ~/ or ~\ and join with home path
+            $relativePath = $Path -replace '^~[/\\]', ''
+            $normalizedPath = Join-Path $homePath $relativePath
+            # Normalize path separators for Windows
+            return $normalizedPath -replace '/', '\'
+        } elseif ($Path -match '^~') {
+            # Handle just ~ at the start (shouldn't happen, but be safe)
+            $relativePath = $Path -replace '^~', ''
+            $normalizedPath = Join-Path $homePath $relativePath
+            return $normalizedPath -replace '/', '\'
+        }
+        
+        return $Path
+    }
+    
     # Normalize command if it exists
     if ($McpServerConfig.PSObject.Properties.Name -contains "command") {
         $command = $McpServerConfig.command
         if ($command -is [string]) {
-            # Replace ~/ and ~\ with absolute home directory path
-            $command = $command -replace '^~/', $homePath -replace '^~\\', $homePath
-            $McpServerConfig.command = $command
+            $McpServerConfig.command = Normalize-PathString -Path $command
         }
     }
     
@@ -475,8 +499,7 @@ function Normalize-MCPPaths {
         if ($mcpArgs -is [Array]) {
             for ($i = 0; $i -lt $mcpArgs.Length; $i++) {
                 if ($mcpArgs[$i] -is [string]) {
-                    # Replace ~/ and ~\ with absolute home directory path
-                    $mcpArgs[$i] = $mcpArgs[$i] -replace '^~/', $homePath -replace '^~\\', $homePath
+                    $mcpArgs[$i] = Normalize-PathString -Path $mcpArgs[$i]
                 }
             }
             $McpServerConfig.args = $mcpArgs

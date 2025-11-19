@@ -1,0 +1,14 @@
+# Custom MCP Servers Configuration
+# This file defines custom MCP servers that will be cloned and built during installation
+# Each MCP entry should have:
+#   - name: The identifier for the MCP (used as directory name)
+#   - repository: The GitHub repository URL
+#   - buildCommands: Optional array of build commands to run (skip if empty or not specified)
+
+mcps:
+  - name: godot-mcp
+    repository: https://github.com/RallyHereInteractive/godot-mcp
+    buildCommands:
+      - npm install
+      - npm run build
+

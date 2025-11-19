@@ -9,7 +9,7 @@ param(
     [string]$CloneDirectory = "",
     
     [Parameter(Mandatory=$false)]
-    [switch]$Wait
+    [switch]$NoWait
 )
 
 # Set execution policy for the current process
@@ -20,7 +20,7 @@ $documentsPath = [Environment]::GetFolderPath("MyDocuments")
 Set-Location $documentsPath
 
 if ([string]::IsNullOrEmpty($CloneDirectory)) {
-    $CloneDirectory = "$documentsPath\cursor-setup"
+    $CloneDirectory = "$documentsPath\gamedev-tools\cursor-setup"
 }
 
 # Check if running as Administrator and request elevation if needed
@@ -184,6 +184,7 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
     if (Test-Path $CloneDirectory) {
         Write-ColorOutput "Updating existing repository..." "Yellow"
         Push-Location $CloneDirectory
+        git reset --hard 2>$null
         git pull origin main 2>$null
         Pop-Location
     }
@@ -201,6 +202,289 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
     Write-ColorOutput "Git is not available. Cannot clone repository." "Red"
 }
 Write-Host ""
+
+# Step 5.5: Install yq for YAML processing
+Write-ColorOutput "Step 5.5: Installing yq (YAML processor)..." "Cyan"
+$yqInstalled = $false
+if (Test-CommandExists "yq") {
+    Write-ColorOutput "yq is already installed." "Green"
+    $yqVersion = yq --version 2>&1
+    Write-ColorOutput "Current version: $yqVersion" "Gray"
+    $yqInstalled = $true
+} else {
+    # Try installing via winget first
+    Write-ColorOutput "Installing yq via winget..." "Yellow"
+    $yqInstalled = Install-WithWinget "mikefarah.yq" "yq"
+    
+    if (-not $yqInstalled) {
+        # Fallback: Try direct download for Windows
+        Write-ColorOutput "Winget installation failed, trying direct download..." "Yellow"
+        try {
+            $yqVersion = "v4.44.3"  # Latest stable version as of writing
+            $yqUrl = "https://github.com/mikefarah/yq/releases/download/$yqVersion/yq_windows_amd64.exe"
+            $yqPath = "$env:ProgramFiles\yq\yq.exe"
+            $yqDir = "$env:ProgramFiles\yq"
+            
+            if (-not (Test-Path $yqDir)) {
+                New-Item -ItemType Directory -Path $yqDir -Force | Out-Null
+            }
+            
+            Write-ColorOutput "Downloading yq from GitHub..." "Yellow"
+            Invoke-WebRequest -Uri $yqUrl -OutFile $yqPath -UseBasicParsing
+            
+            # Add to PATH for current session
+            $env:Path = "$yqDir;$env:Path"
+            
+            # Verify installation
+            Start-Sleep -Seconds 1
+            if (Test-CommandExists "yq") {
+                Write-ColorOutput "yq installed successfully!" "Green"
+                $yqInstalled = $true
+            } else {
+                Write-ColorOutput "Warning: yq installed but not available in PATH. You may need to add $yqDir to your PATH manually." "Yellow"
+                Write-ColorOutput "Continuing with installation..." "Yellow"
+                $yqInstalled = $true  # Assume it's installed
+            }
+        } catch {
+            Write-ColorOutput "Error installing yq: $_" "Red"
+            Write-ColorOutput "You may need to install yq manually from https://github.com/mikefarah/yq" "Yellow"
+        }
+    } else {
+        # Refresh PATH after winget installation
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Start-Sleep -Seconds 2
+    }
+}
+Write-Host ""
+
+# Function to clone custom MCPs from YAML configuration
+function Clone-CustomMCPs {
+    param(
+        [string]$ConfigPath,
+        [string]$BaseMcpDirectory
+    )
+    
+    if (-not (Test-Path $ConfigPath)) {
+        Write-ColorOutput "MCPs configuration file not found at: $ConfigPath" "Gray"
+        return @()
+    }
+    
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot process YAML configuration." "Red"
+        return @()
+    }
+    
+    # Ensure base MCP directory exists
+    if (-not (Test-Path $BaseMcpDirectory)) {
+        New-Item -ItemType Directory -Path $BaseMcpDirectory -Force | Out-Null
+        Write-ColorOutput "Created MCP directory: $BaseMcpDirectory" "Gray"
+    }
+    
+    $mcpList = @()
+    
+    try {
+        # Use yq to parse YAML and extract MCP entries
+        # First, get the entire mcps array as JSON
+        $yqOutput = yq eval '.mcps' $ConfigPath -o json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse custom MCPs YAML: $yqOutput" "Yellow"
+            return @()
+        }
+        
+        # Parse the JSON output
+        $mcpEntries = $yqOutput | ConvertFrom-Json
+        
+        # Handle single entry vs array
+        if ($null -eq $mcpEntries) {
+            return @()
+        }
+        if ($mcpEntries -isnot [Array]) {
+            $mcpEntries = @($mcpEntries)
+        }
+        
+        foreach ($mcp in $mcpEntries) {
+            $mcpName = $mcp.name
+            $mcpRepo = $mcp.repository
+            $mcpBuildCommands = $mcp.buildCommands
+            
+            if ([string]::IsNullOrEmpty($mcpName) -or [string]::IsNullOrEmpty($mcpRepo)) {
+                Write-ColorOutput "Warning: Skipping MCP entry with missing name or repository" "Yellow"
+                continue
+            }
+            
+            $mcpDirectory = Join-Path $BaseMcpDirectory $mcpName
+            
+            Write-ColorOutput "Processing MCP: $mcpName" "Yellow"
+            
+            # Clone or update repository
+            if (Test-Path $mcpDirectory) {
+                Write-ColorOutput "  Updating existing repository..." "Gray"
+                Push-Location $mcpDirectory
+                git reset --hard 2>$null
+                git pull origin main 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    # Try master branch if main fails
+                    git pull origin master 2>$null
+                }
+                Pop-Location
+            } else {
+                Write-ColorOutput "  Cloning from $mcpRepo..." "Gray"
+                try {
+                    git clone $mcpRepo $mcpDirectory 2>&1 | Out-Null
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "  Cloned successfully!" "Green"
+                    } else {
+                        Write-ColorOutput "  Failed to clone repository" "Red"
+                        continue
+                    }
+                } catch {
+                    Write-ColorOutput "  Error cloning repository: $_" "Red"
+                    continue
+                }
+            }
+            
+            $mcpList += @{
+                Name = $mcpName
+                Directory = $mcpDirectory
+                BuildCommands = $mcpBuildCommands
+            }
+        }
+    } catch {
+        Write-ColorOutput "Error processing custom MCPs configuration: $_" "Red"
+    }
+    
+    return $mcpList
+}
+
+# Step 6: Clone custom MCPs
+Write-ColorOutput "Step 6: Cloning custom MCP servers..." "Cyan"
+$documentsPath = [Environment]::GetFolderPath("MyDocuments")
+$mcpBaseDirectory = "$documentsPath\gamedev-tools\mcp"
+$customMcpsConfigPath = "$CloneDirectory\mcps.yaml"
+
+$customMcps = @()
+if (Test-Path $CloneDirectory) {
+    $customMcps = Clone-CustomMCPs -ConfigPath $customMcpsConfigPath -BaseMcpDirectory $mcpBaseDirectory
+    if ($customMcps.Count -gt 0) {
+        Write-ColorOutput "Cloned $($customMcps.Count) custom MCP server(s)" "Green"
+    } else {
+        Write-ColorOutput "No custom MCPs configured or found in repository" "Gray"
+    }
+} else {
+    Write-ColorOutput "Repository directory not found. Skipping custom MCP cloning." "Yellow"
+}
+Write-Host ""
+
+# Function to build custom MCPs
+function Build-CustomMCPs {
+    param(
+        [array]$McpList
+    )
+    
+    if ($McpList.Count -eq 0) {
+        return
+    }
+    
+    foreach ($mcp in $McpList) {
+        $mcpName = $mcp.Name
+        $mcpDirectory = $mcp.Directory
+        $buildCommands = $mcp.BuildCommands
+        
+        # Skip if no build commands specified
+        if ($null -eq $buildCommands -or $buildCommands.Count -eq 0) {
+            Write-ColorOutput "Skipping build for $mcpName (no build commands specified)" "Gray"
+            continue
+        }
+        
+        Write-ColorOutput "Building MCP: $mcpName" "Yellow"
+        
+        if (-not (Test-Path $mcpDirectory)) {
+            Write-ColorOutput "  Error: MCP directory not found at $mcpDirectory" "Red"
+            continue
+        }
+        
+        Push-Location $mcpDirectory
+        
+        $buildSuccess = $true
+        foreach ($command in $buildCommands) {
+            Write-ColorOutput "  Running: $command" "Gray"
+            try {
+                # Execute the build command
+                Invoke-Expression $command 2>&1 | Out-String | ForEach-Object {
+                    if ($_ -match "error|Error|ERROR|failed|Failed|FAILED") {
+                        Write-ColorOutput "    $_" "Red"
+                    } else {
+                        Write-ColorOutput "    $_" "Gray"
+                    }
+                }
+                
+                if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $null) {
+                    Write-ColorOutput "  Build command failed with exit code: $LASTEXITCODE" "Red"
+                    $buildSuccess = $false
+                    break
+                }
+            } catch {
+                Write-ColorOutput "  Error executing build command: $_" "Red"
+                $buildSuccess = $false
+                break
+            }
+        }
+        
+        Pop-Location
+        
+        if ($buildSuccess) {
+            Write-ColorOutput "  Build completed successfully!" "Green"
+        } else {
+            Write-ColorOutput "  Build failed for $mcpName" "Red"
+        }
+    }
+}
+
+# Step 7: Build custom MCPs
+Write-ColorOutput "Step 7: Building custom MCP servers..." "Cyan"
+if ($customMcps.Count -gt 0) {
+    Build-CustomMCPs -McpList $customMcps
+    Write-ColorOutput "Build process completed for custom MCPs" "Green"
+} else {
+    Write-ColorOutput "No custom MCPs to build (none configured)" "Gray"
+}
+Write-Host ""
+
+# Function to normalize paths in MCP configuration
+function Normalize-MCPPaths {
+    param(
+        [PSCustomObject]$McpServerConfig
+    )
+    
+    $homePath = $env:USERPROFILE
+    
+    # Normalize command if it exists
+    if ($McpServerConfig.PSObject.Properties.Name -contains "command") {
+        $command = $McpServerConfig.command
+        if ($command -is [string]) {
+            # Replace ~/ and ~\ with absolute home directory path
+            $command = $command -replace '^~/', $homePath -replace '^~\\', $homePath
+            $McpServerConfig.command = $command
+        }
+    }
+    
+    # Normalize args array if it exists
+    if ($McpServerConfig.PSObject.Properties.Name -contains "args") {
+        $mcpArgs = $McpServerConfig.args
+        if ($mcpArgs -is [Array]) {
+            for ($i = 0; $i -lt $mcpArgs.Length; $i++) {
+                if ($mcpArgs[$i] -is [string]) {
+                    # Replace ~/ and ~\ with absolute home directory path
+                    $mcpArgs[$i] = $mcpArgs[$i] -replace '^~/', $homePath -replace '^~\\', $homePath
+                }
+            }
+            $McpServerConfig.args = $mcpArgs
+        }
+    }
+    
+    return $McpServerConfig
+}
 
 # Function to merge MCP configurations
 function Merge-MCPConfig {
@@ -234,7 +518,9 @@ function Merge-MCPConfig {
                 $addedCount = 0
                 foreach ($serverName in $newContent.mcpServers.PSObject.Properties.Name) {
                     if (-not $mergedServers.ContainsKey($serverName)) {
-                        $mergedServers[$serverName] = $newContent.mcpServers.$serverName
+                        # Normalize paths before adding
+                        $normalizedConfig = Normalize-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
+                        $mergedServers[$serverName] = $normalizedConfig
                         $addedCount++
                         Write-ColorOutput "  Added MCP server: $serverName" "Green"
                     } else {
@@ -272,8 +558,8 @@ function Merge-MCPConfig {
     }
 }
 
-# Step 6: Set up Cursor configuration
-Write-ColorOutput "Step 6: Setting up Cursor configuration..." "Cyan"
+# Step 8: Set up Cursor configuration
+Write-ColorOutput "Step 8: Setting up Cursor configuration..." "Cyan"
 try {
     $cursorConfigPath = "$env:APPDATA\Cursor\User"
 
@@ -324,7 +610,7 @@ try {
         if (Test-Path $mcpConfigPath) {
             Write-ColorOutput "Found existing MCP config at: $mcpConfigPath" "Gray"
         }
-        $mcpConfigSource = "$CloneDirectory\sample-mcp-config.json"
+        $mcpConfigSource = "$CloneDirectory\cursor-mcp-config.json"
         
         if (Test-Path $mcpConfigSource) {
             try {
@@ -346,8 +632,8 @@ try {
 }
 Write-Host ""
 
-# Step 7: Install MCP dependencies (if needed)
-Write-ColorOutput "Step 7: Checking for nvm and Node.js..." "Cyan"
+# Step 9: Install MCP dependencies (if needed)
+Write-ColorOutput "Step 9: Checking for nvm and Node.js..." "Cyan"
 try {
     # Check if nvm is installed
     $nvmInstalled = $false
@@ -447,8 +733,8 @@ try {
 }
 Write-Host ""
 
-# Step 8: Install uv and Python 3.11
-Write-ColorOutput "Step 8: Installing uv and Python 3.11..." "Cyan"
+# Step 10: Install uv and Python 3.11
+Write-ColorOutput "Step 10: Installing uv and Python 3.11..." "Cyan"
 try {
     # Check if uv is already installed
     $uvInstalled = $false
@@ -569,7 +855,7 @@ try {
 }
 Write-Host ""
 
-# Step 9: Final setup instructions
+# Step 11: Final setup instructions
 Write-ColorOutput "============================================" "Cyan"
 Write-ColorOutput "Setup Complete!" "Green"
 Write-ColorOutput "============================================" "Cyan"
@@ -592,8 +878,8 @@ if (Test-Path $cursorPath) {
 Write-Host ""
 Write-ColorOutput "Setup complete!" "Green"
 
-# Wait for user input if -Wait flag is set
-if ($Wait) {
+# Wait for user input unless -NoWait flag is set
+if (-not $NoWait) {
     Write-Host ""
     Write-ColorOutput "Press Enter to exit..." "Gray"
     $null = Read-Host

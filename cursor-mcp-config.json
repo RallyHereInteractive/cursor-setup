@@ -11,6 +11,11 @@
     "memory": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-memory"]
+    },
+    "godot": {
+        "command": "node",
+        "args": ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]
     }
   }
 }
+

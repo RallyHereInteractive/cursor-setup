@@ -218,37 +218,86 @@ if ($gitInstalled -or (Test-CommandExists "git")) {
         Push-Location $CloneDirectory
         try {
             # Fetch all branches from remote
-            git fetch origin 2>$null
+            $fetchOutput = git fetch origin 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Warning: Failed to fetch from origin: $fetchOutput" "Yellow"
+            }
             
-            # Try to checkout the branch
-            # First, check if branch exists locally
-            $localBranch = git branch --list $Branch 2>$null
-            $remoteBranch = git branch -r --list "origin/$Branch" 2>$null
+            # Clean working directory completely before checkout
+            # Reset any uncommitted changes to tracked files
+            git reset --hard HEAD 2>&1 | Out-Null
+            # Remove untracked files and directories
+            git clean -fd 2>&1 | Out-Null
+            Write-ColorOutput "Cleaned working directory" "Gray"
             
-            if ($remoteBranch) {
+            # Check if branch exists locally (more reliable check)
+            $localBranchOutput = git branch --list $Branch 2>&1
+            $localBranchExists = ($localBranchOutput -match "^\s*\*?\s*$Branch\s*$" -or ($localBranchOutput -and $localBranchOutput.Trim() -ne ""))
+            
+            # Check if branch exists on remote (more reliable check)
+            $remoteBranchOutput = git ls-remote --heads origin $Branch 2>&1
+            $remoteBranchExists = ($LASTEXITCODE -eq 0 -and $remoteBranchOutput -and $remoteBranchOutput.Trim() -ne "")
+            
+            if ($remoteBranchExists) {
                 # Remote branch exists
-                if ($localBranch) {
+                if ($localBranchExists) {
                     # Local branch exists, checkout and update
-                    git checkout $Branch 2>$null
-                    git reset --hard origin/$Branch 2>$null
-                    Write-ColorOutput "Checked out branch '$Branch' and updated to latest" "Green"
+                    $checkoutOutput = git checkout $Branch 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        $resetOutput = git reset --hard origin/$Branch 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-ColorOutput "Checked out branch '$Branch' and updated to latest" "Green"
+                        } else {
+                            Write-ColorOutput "Warning: Checked out branch '$Branch' but failed to reset to origin/$Branch" "Yellow"
+                            Write-ColorOutput "  Error: $resetOutput" "Gray"
+                        }
+                    } else {
+                        Write-ColorOutput "Failed to checkout branch '$Branch': $checkoutOutput" "Red"
+                    }
                 } else {
                     # Local branch doesn't exist, create tracking branch
-                    git checkout -b $Branch origin/$Branch 2>$null
+                    $checkoutOutput = git checkout -b $Branch origin/$Branch 2>&1
                     if ($LASTEXITCODE -eq 0) {
                         Write-ColorOutput "Created local branch '$Branch' tracking origin/$Branch" "Green"
                     } else {
                         Write-ColorOutput "Failed to create branch '$Branch'" "Red"
+                        Write-ColorOutput "  Error: $checkoutOutput" "Gray"
+                        # Try alternative: fetch and checkout directly
+                        Write-ColorOutput "  Attempting alternative checkout method..." "Yellow"
+                        $altFetchOutput = git fetch origin $Branch 2>&1
+                        if ($LASTEXITCODE -eq 0) {
+                            $altCheckout = git checkout $Branch 2>&1
+                            if ($LASTEXITCODE -eq 0) {
+                                Write-ColorOutput "Successfully checked out branch '$Branch' using alternative method" "Green"
+                            } else {
+                                Write-ColorOutput "  Alternative method also failed: $altCheckout" "Red"
+                            }
+                        } else {
+                            Write-ColorOutput "  Alternative fetch failed: $altFetchOutput" "Red"
+                        }
                     }
                 }
-            } elseif ($localBranch) {
+            } elseif ($localBranchExists) {
                 # Local branch exists but no remote, just checkout
-                git checkout $Branch 2>$null
-                Write-ColorOutput "Checked out local branch '$Branch' (no remote tracking)" "Yellow"
+                $checkoutOutput = git checkout $Branch 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-ColorOutput "Checked out local branch '$Branch' (no remote tracking)" "Yellow"
+                } else {
+                    Write-ColorOutput "Failed to checkout local branch '$Branch': $checkoutOutput" "Red"
+                }
             } else {
                 # Branch doesn't exist, stay on current branch and pull
-                Write-ColorOutput "Branch '$Branch' not found, staying on current branch" "Yellow"
-                git pull 2>$null
+                Write-ColorOutput "Branch '$Branch' not found on remote or locally, staying on current branch" "Yellow"
+                $currentBranch = git rev-parse --abbrev-ref HEAD 2>&1
+                if ($currentBranch) {
+                    Write-ColorOutput "Current branch: $currentBranch" "Gray"
+                }
+                $pullOutput = git pull 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                    Write-ColorOutput "Updated current branch" "Green"
+                } else {
+                    Write-ColorOutput "Warning: Failed to pull updates: $pullOutput" "Yellow"
+                }
             }
         } catch {
             Write-ColorOutput "Error updating repository: $_" "Red"

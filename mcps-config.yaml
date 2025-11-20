@@ -1,0 +1,31 @@
+# Unified MCP Configuration
+# This file is the single source of truth for MCP server configuration
+# It generates both Cursor JSON (~/.cursor/mcp.json) and Codex TOML (~/.codex/config.toml) formats
+
+servers:
+  # Standard MCP servers (npx/npm packages)
+  - name: filesystem
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    enabled: true
+    
+  - name: git
+    command: uvx
+    args: ["mcp-server-git", "--repository", "."]
+    enabled: true
+    
+  - name: memory
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-memory"]
+    enabled: true
+    
+  # Custom MCP servers that need cloning/building
+  - name: godot-mcp
+    command: node
+    args: ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]
+    repository: https://github.com/RallyHereInteractive/godot-mcp
+    buildCommands:
+      - npm install
+      - npm run build
+    enabled: true
+

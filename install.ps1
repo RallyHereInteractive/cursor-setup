@@ -284,11 +284,11 @@ function Clone-CustomMCPs {
     
     try {
         # Use yq to parse YAML and extract MCP entries
-        # First, get the entire mcps array as JSON
-        $yqOutput = yq eval '.mcps' $ConfigPath -o json 2>&1
+        # Check if this is unified format (servers) or legacy format (mcps)
+        $yqOutput = yq eval '.servers // .mcps' $ConfigPath -o json 2>&1
         
         if ($LASTEXITCODE -ne 0) {
-            Write-ColorOutput "Warning: Could not parse custom MCPs YAML: $yqOutput" "Yellow"
+            Write-ColorOutput "Warning: Could not parse MCPs YAML: $yqOutput" "Yellow"
             return @()
         }
         
@@ -308,8 +308,13 @@ function Clone-CustomMCPs {
             $mcpRepo = $mcp.repository
             $mcpBuildCommands = $mcp.buildCommands
             
-            if ([string]::IsNullOrEmpty($mcpName) -or [string]::IsNullOrEmpty($mcpRepo)) {
-                Write-ColorOutput "Warning: Skipping MCP entry with missing name or repository" "Yellow"
+            # Skip if no repository (standard MCP servers don't need cloning)
+            if ([string]::IsNullOrEmpty($mcpRepo)) {
+                continue
+            }
+            
+            if ([string]::IsNullOrEmpty($mcpName)) {
+                Write-ColorOutput "Warning: Skipping MCP entry with missing name" "Yellow"
                 continue
             }
             
@@ -361,7 +366,11 @@ function Clone-CustomMCPs {
 Write-ColorOutput "Step 6: Cloning custom MCP servers..." "Cyan"
 $documentsPath = [Environment]::GetFolderPath("MyDocuments")
 $mcpBaseDirectory = "$documentsPath\gamedev-tools\mcp"
-$customMcpsConfigPath = "$CloneDirectory\mcps.yaml"
+# Try unified config first, fall back to legacy mcps.yaml
+$customMcpsConfigPath = "$CloneDirectory\mcps-config.yaml"
+if (-not (Test-Path $customMcpsConfigPath)) {
+    $customMcpsConfigPath = "$CloneDirectory\mcps.yaml"
+}
 
 $customMcps = @()
 if (Test-Path $CloneDirectory) {
@@ -509,6 +518,454 @@ function Normalize-MCPPaths {
     return $McpServerConfig
 }
 
+# Function to convert unified YAML MCP config to Cursor JSON format
+function Convert-MCPToCursorJson {
+    param(
+        [string]$YamlConfigPath
+    )
+    
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+    
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+    
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+        
+        $servers = $yqOutput | ConvertFrom-Json
+        
+        if ($null -eq $servers) {
+            return $null
+        }
+        
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+        
+        # Build Cursor JSON structure
+        $mcpServers = @{}
+        
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+            
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+            
+            $serverConfig = @{}
+            
+            if ($server.command) {
+                $serverConfig.command = $server.command
+            }
+            
+            if ($server.args) {
+                $serverConfig.args = $server.args
+            }
+            
+            if ($server.env) {
+                $serverConfig.env = $server.env
+            }
+            
+            # Normalize paths in the config
+            $serverConfigObj = [PSCustomObject]$serverConfig
+            $normalizedConfig = Normalize-MCPPaths -McpServerConfig $serverConfigObj
+            
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                $finalConfig[$prop.Name] = $prop.Value
+            }
+            
+            $mcpServers[$serverName] = $finalConfig
+        }
+        
+        # Create the JSON structure
+        $result = @{
+            mcpServers = $mcpServers
+        }
+        
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Cursor JSON: $_" "Red"
+        return $null
+    }
+}
+
+# Function to convert unified YAML MCP config to Codex TOML format
+function Convert-MCPToCodexToml {
+    param(
+        [string]$YamlConfigPath
+    )
+    
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+    
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+    
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+        
+        $servers = $yqOutput | ConvertFrom-Json
+        
+        if ($null -eq $servers) {
+            return $null
+        }
+        
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+        
+        # Build TOML structure using yq
+        # We'll create a temporary YAML structure that yq can convert to TOML
+        $tomlSections = @()
+        
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+            
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+            
+            # Build TOML section for this server
+            $section = "[mcp_servers.$serverName]`n"
+            
+            if ($server.command) {
+                $section += "command = `"$($server.command)`"`n"
+            }
+            
+            if ($server.args) {
+                # Convert args array to TOML format
+                $argsList = @()
+                foreach ($arg in $server.args) {
+                    # Escape quotes in arguments
+                    $escapedArg = $arg -replace '"', '\"'
+                    $argsList += "`"$escapedArg`""
+                }
+                $argsStr = $argsList -join ", "
+                $section += "args = [$argsStr]`n"
+            }
+            
+            if ($server.env) {
+                $section += "`n[mcp_servers.$serverName.env]`n"
+                foreach ($key in $server.env.PSObject.Properties.Name) {
+                    $value = $server.env.$key
+                    $section += "$key = `"$value`"`n"
+                }
+            }
+            
+            # Add optional Codex-specific fields
+            if ($server.startup_timeout_sec) {
+                $section += "startup_timeout_sec = $($server.startup_timeout_sec)`n"
+            }
+            
+            if ($server.tool_timeout_sec) {
+                $section += "tool_timeout_sec = $($server.tool_timeout_sec)`n"
+            }
+            
+            if ($server.enabled_tools) {
+                $toolsStr = $server.enabled_tools -join '", "'
+                $section += "enabled_tools = [`"$toolsStr`"]`n"
+            }
+            
+            if ($server.disabled_tools) {
+                $toolsStr = $server.disabled_tools -join '", "'
+                $section += "disabled_tools = [`"$toolsStr`"]`n"
+            }
+            
+            if ($null -ne $server.enabled) {
+                $section += "enabled = $($server.enabled.ToString().ToLower())`n"
+            }
+            
+            $tomlSections += $section
+        }
+        
+        return $tomlSections -join "`n`n"
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Codex TOML: $_" "Red"
+        return $null
+    }
+}
+
+# Function to merge Codex TOML configuration
+function Merge-CodexTomlConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [string]$NewTomlContent
+    )
+    
+    if ($null -eq $NewTomlContent -or [string]::IsNullOrEmpty($NewTomlContent)) {
+        Write-ColorOutput "No new TOML content to merge" "Yellow"
+        return $false
+    }
+    
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot merge Codex TOML configuration." "Red"
+        return $false
+    }
+    
+    try {
+        $existingContent = ""
+        $existingMcpServers = @{}
+        
+        # Read existing config if it exists
+        if (Test-Path $ExistingConfigPath) {
+            $existingContent = Get-Content $ExistingConfigPath -Raw
+            Write-ColorOutput "Found existing Codex config at: $ExistingConfigPath" "Gray"
+            
+            # Extract existing mcp_servers sections using yq
+            $yqOutput = yq eval '.mcp_servers // {}' $ExistingConfigPath -o json 2>&1
+            if ($LASTEXITCODE -eq 0 -and $yqOutput) {
+                $existingMcpServers = $yqOutput | ConvertFrom-Json
+            }
+        }
+        
+        # Parse new TOML content to extract server names
+        $newServerNames = @()
+        $lines = $NewTomlContent -split "`n"
+        foreach ($line in $lines) {
+            if ($line -match '\[mcp_servers\.([^\]]+)\]') {
+                $serverName = $matches[1]
+                if (-not $newServerNames.Contains($serverName)) {
+                    $newServerNames += $serverName
+                }
+            }
+        }
+        
+        # Check which servers are new
+        $addedCount = 0
+        foreach ($serverName in $newServerNames) {
+            if (-not $existingMcpServers.PSObject.Properties.Name.Contains($serverName)) {
+                $addedCount++
+                Write-ColorOutput "  Adding MCP server to Codex: $serverName" "Green"
+            } else {
+                Write-ColorOutput "  MCP server '$serverName' already exists in Codex config, preserving existing configuration" "Yellow"
+            }
+        }
+        
+        if ($addedCount -eq 0) {
+            Write-ColorOutput "All required MCP servers are already configured in Codex" "Green"
+        }
+        
+        # Merge TOML content
+        # If no existing config, just write the new content
+        if ([string]::IsNullOrEmpty($existingContent)) {
+            $NewTomlContent | Set-Content $ExistingConfigPath -Encoding UTF8
+            Write-ColorOutput "Codex TOML configuration created successfully!" "Green"
+            return $true
+        }
+        
+        # For merging, we need to append new mcp_servers sections
+        # Remove existing mcp_servers sections and append new ones
+        $mergedContent = $existingContent
+        
+        # Remove existing mcp_servers sections (lines between [mcp_servers.*] and next [section] or end)
+        $contentLines = $mergedContent -split "`n"
+        $newLines = @()
+        $skipUntilNextSection = $false
+        
+        foreach ($line in $contentLines) {
+            if ($line -match '^\s*\[mcp_servers\.') {
+                $skipUntilNextSection = $true
+                continue
+            }
+            if ($skipUntilNextSection -and ($line -match '^\s*\[[^\]]+\]' -or [string]::IsNullOrWhiteSpace($line))) {
+                $skipUntilNextSection = $false
+                if (-not [string]::IsNullOrWhiteSpace($line)) {
+                    $newLines += $line
+                }
+                continue
+            }
+            if (-not $skipUntilNextSection) {
+                $newLines += $line
+            }
+        }
+        
+        # Append new mcp_servers sections
+        $mergedContent = $newLines -join "`n"
+        if (-not $mergedContent.EndsWith("`n")) {
+            $mergedContent += "`n"
+        }
+        $mergedContent += "`n# MCP Servers (managed by cursor-setup)`n"
+        $mergedContent += $NewTomlContent
+        
+        $mergedContent | Set-Content $ExistingConfigPath -Encoding UTF8
+        Write-ColorOutput "Codex TOML configuration updated successfully!" "Green"
+        return $true
+    } catch {
+        Write-ColorOutput "Error merging Codex TOML config: $_" "Red"
+        return $false
+    }
+}
+
+# Function to migrate legacy MCP configs to unified format
+function Migrate-LegacyMCPConfig {
+    param(
+        [string]$CloneDirectory
+    )
+    
+    $legacyJsonPath = "$CloneDirectory\cursor-mcp-config.json"
+    $legacyYamlPath = "$CloneDirectory\mcps.yaml"
+    $unifiedPath = "$CloneDirectory\mcps-config.yaml"
+    
+    # Check if unified config already exists
+    if (Test-Path $unifiedPath) {
+        Write-ColorOutput "Unified MCP config already exists, skipping migration" "Gray"
+        return $false
+    }
+    
+    # Check if we have legacy configs to migrate
+    $hasLegacyJson = Test-Path $legacyJsonPath
+    $hasLegacyYaml = Test-Path $legacyYamlPath
+    
+    if (-not $hasLegacyJson -and -not $hasLegacyYaml) {
+        return $false
+    }
+    
+    Write-ColorOutput "Migrating legacy MCP configs to unified format..." "Yellow"
+    
+    try {
+        $servers = @()
+        
+        # Read legacy JSON config
+        if ($hasLegacyJson) {
+            $jsonContent = Get-Content $legacyJsonPath -Raw | ConvertFrom-Json
+            if ($jsonContent.mcpServers) {
+                foreach ($serverName in $jsonContent.mcpServers.PSObject.Properties.Name) {
+                    $serverConfig = $jsonContent.mcpServers.$serverName
+                    $server = @{
+                        name = $serverName
+                        command = $serverConfig.command
+                        args = $serverConfig.args
+                        enabled = $true
+                    }
+                    
+                    if ($serverConfig.env) {
+                        $server.env = $serverConfig.env
+                    }
+                    
+                    $servers += $server
+                }
+            }
+        }
+        
+        # Read legacy YAML config for custom MCPs
+        if ($hasLegacyYaml -and (Test-CommandExists "yq")) {
+            $yqOutput = yq eval '.mcps' $legacyYamlPath -o json 2>&1
+            if ($LASTEXITCODE -eq 0 -and $yqOutput) {
+                $customMcps = $yqOutput | ConvertFrom-Json
+                if ($customMcps -isnot [Array]) {
+                    $customMcps = @($customMcps)
+                }
+                
+                foreach ($customMcp in $customMcps) {
+                    # Find matching server in servers array and add repository/buildCommands
+                    $matchingServer = $servers | Where-Object { $_.name -eq $customMcp.name }
+                    if ($matchingServer) {
+                        $matchingServer.repository = $customMcp.repository
+                        if ($customMcp.buildCommands) {
+                            $matchingServer.buildCommands = $customMcp.buildCommands
+                        }
+                    } else {
+                        # Add new server entry
+                        $server = @{
+                            name = $customMcp.name
+                            repository = $customMcp.repository
+                            enabled = $true
+                        }
+                        if ($customMcp.buildCommands) {
+                            $server.buildCommands = $customMcp.buildCommands
+                        }
+                        $servers += $server
+                    }
+                }
+            }
+        }
+        
+        # Create unified YAML
+        $unifiedConfig = @{
+            servers = $servers
+        }
+        
+        # Convert to YAML using yq
+        $yamlContent = $unifiedConfig | ConvertTo-Json -Depth 10
+        $tempJson = "$env:TEMP\mcp-migration-temp.json"
+        $yamlContent | Set-Content $tempJson -Encoding UTF8
+        
+        # Use yq to convert JSON to YAML
+        yq eval -P '.' $tempJson > $unifiedPath 2>&1
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-ColorOutput "Successfully migrated legacy configs to unified format" "Green"
+            Remove-Item $tempJson -ErrorAction SilentlyContinue
+            return $true
+        } else {
+            Write-ColorOutput "Warning: Could not convert to YAML format, creating manual YAML" "Yellow"
+            # Fallback: create YAML manually
+            $yamlLines = @("# Unified MCP Configuration", "# Migrated from legacy configs", "", "servers:")
+            foreach ($server in $servers) {
+                $yamlLines += "  - name: $($server.name)"
+                if ($server.command) { $yamlLines += "    command: $($server.command)" }
+                if ($server.args) {
+                    $argsStr = ($server.args | ForEach-Object { "`"$_`"" }) -join ", "
+                    $yamlLines += "    args: [$argsStr]"
+                }
+                if ($server.repository) { $yamlLines += "    repository: $($server.repository)" }
+                if ($server.buildCommands) {
+                    $yamlLines += "    buildCommands:"
+                    foreach ($cmd in $server.buildCommands) {
+                        $yamlLines += "      - $cmd"
+                    }
+                }
+                if ($server.env) {
+                    $yamlLines += "    env:"
+                    foreach ($key in $server.env.PSObject.Properties.Name) {
+                        $envValue = $server.env.$key
+                        $yamlLines += "      ${key}: `"$envValue`""
+                    }
+                }
+                $yamlLines += "    enabled: true"
+                $yamlLines += ""
+            }
+            $yamlLines -join "`n" | Set-Content $unifiedPath -Encoding UTF8
+            Remove-Item $tempJson -ErrorAction SilentlyContinue
+            return $true
+        }
+    } catch {
+        Write-ColorOutput "Error during migration: $_" "Red"
+        return $false
+    }
+}
+
 # Function to merge MCP configurations
 function Merge-MCPConfig {
     param(
@@ -616,34 +1073,84 @@ try {
         }
         
         # Set up MCP configuration (merge, don't overwrite)
-        # Cursor stores MCP config in ~\.cursor\mcp.json
-        Write-ColorOutput "Configuring MCP servers..." "Yellow"
+        # Try to migrate legacy configs first
+        Migrate-LegacyMCPConfig -CloneDirectory $CloneDirectory | Out-Null
         
-        # Default MCP config location for Cursor
-        $cursorMcpConfigDir = "$env:USERPROFILE\.cursor"
-        $mcpConfigPath = "$cursorMcpConfigDir\mcp.json"
+        # Unified MCP config location
+        $unifiedMcpConfigPath = "$CloneDirectory\mcps-config.yaml"
+        $legacyMcpConfigPath = "$CloneDirectory\cursor-mcp-config.json"
         
-        # Ensure .cursor directory exists
-        if (-not (Test-Path $cursorMcpConfigDir)) {
-            New-Item -ItemType Directory -Path $cursorMcpConfigDir -Force | Out-Null
-            Write-ColorOutput "Created .cursor directory at: $cursorMcpConfigDir" "Gray"
-        }
+        # Determine which config to use
+        $useUnifiedConfig = Test-Path $unifiedMcpConfigPath
+        $useLegacyConfig = Test-Path $legacyMcpConfigPath
         
-        # Check if MCP config already exists
-        if (Test-Path $mcpConfigPath) {
-            Write-ColorOutput "Found existing MCP config at: $mcpConfigPath" "Gray"
-        }
-        $mcpConfigSource = "$CloneDirectory\cursor-mcp-config.json"
-        
-        if (Test-Path $mcpConfigSource) {
-            try {
-                Merge-MCPConfig -ExistingConfigPath $mcpConfigPath -NewConfigPath $mcpConfigSource
-            } catch {
-                Write-ColorOutput "Warning: Could not merge MCP configuration: $_" "Yellow"
-                Write-ColorOutput "Continuing with installation..." "Yellow"
-            }
+        if (-not $useUnifiedConfig -and -not $useLegacyConfig) {
+            Write-ColorOutput "No MCP configuration found, skipping MCP setup" "Yellow"
         } else {
-            Write-ColorOutput "Sample MCP config not found at: $mcpConfigSource" "Yellow"
+            Write-ColorOutput "Configuring MCP servers..." "Yellow"
+            
+            # Configure Cursor MCP (JSON format)
+            $cursorMcpConfigDir = "$env:USERPROFILE\.cursor"
+            $cursorMcpConfigPath = "$cursorMcpConfigDir\mcp.json"
+            
+            # Ensure .cursor directory exists
+            if (-not (Test-Path $cursorMcpConfigDir)) {
+                New-Item -ItemType Directory -Path $cursorMcpConfigDir -Force | Out-Null
+                Write-ColorOutput "Created .cursor directory at: $cursorMcpConfigDir" "Gray"
+            }
+            
+            if (Test-Path $cursorMcpConfigPath) {
+                Write-ColorOutput "Found existing Cursor MCP config at: $cursorMcpConfigPath" "Gray"
+            }
+            
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Cursor JSON
+                try {
+                    $cursorJsonConfig = Convert-MCPToCursorJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $cursorJsonConfig) {
+                        # Create temporary JSON file for merging
+                        $tempJsonPath = "$env:TEMP\cursor-mcp-temp.json"
+                        $cursorJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempJsonPath -Encoding UTF8
+                        Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $tempJsonPath
+                        Remove-Item $tempJsonPath -ErrorAction SilentlyContinue
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Cursor JSON: $_" "Yellow"
+                }
+            } elseif ($useLegacyConfig) {
+                # Fall back to legacy JSON config
+                try {
+                    Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $legacyMcpConfigPath
+                } catch {
+                    Write-ColorOutput "Warning: Could not merge legacy MCP configuration: $_" "Yellow"
+                }
+            }
+            
+            # Configure Codex MCP (TOML format)
+            $codexConfigDir = "$env:USERPROFILE\.codex"
+            $codexConfigPath = "$codexConfigDir\config.toml"
+            
+            # Ensure .codex directory exists
+            if (-not (Test-Path $codexConfigDir)) {
+                New-Item -ItemType Directory -Path $codexConfigDir -Force | Out-Null
+                Write-ColorOutput "Created .codex directory at: $codexConfigDir" "Gray"
+            }
+            
+            if (Test-Path $codexConfigPath) {
+                Write-ColorOutput "Found existing Codex config at: $codexConfigPath" "Gray"
+            }
+            
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Codex TOML
+                try {
+                    $codexTomlContent = Convert-MCPToCodexToml -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $codexTomlContent) {
+                        Merge-CodexTomlConfig -ExistingConfigPath $codexConfigPath -NewTomlContent $codexTomlContent
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Codex TOML: $_" "Yellow"
+                }
+            }
         }
     } else {
         Write-ColorOutput "Repository directory not found at: $CloneDirectory" "Yellow"

@@ -23,7 +23,7 @@ servers:
     enabled: true
     repository: https://github.com/prophecygamestudio/comfyui-mcp-server
     command: uv
-    args: ["--directory", "~/Documents/gamedev-tools/mcp/comfyui-mcp-server", "run", "src\\server.py"]
+    args: ["--directory", "~/Documents/gamedev-tools/mcp/rallyhere-comfy", "run", "src\\server.py"]
     env:
       comfyui_host: sparky1.hirezcorp.com
 

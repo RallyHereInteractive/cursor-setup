@@ -1,31 +1,37 @@
 # Unified MCP Configuration
 # This file is the single source of truth for MCP server configuration
 # It generates both Cursor JSON (~/.cursor/mcp.json) and Codex TOML (~/.codex/config.toml) formats
-
 servers:
-  # Standard MCP servers (npx/npm packages)
+  # Standard MCP servers
   - name: filesystem
+    enabled: true
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    enabled: true
-    
+
   - name: git
+    enabled: true
     command: uvx
     args: ["mcp-server-git", "--repository", "."]
-    enabled: true
-    
+ 
   - name: memory
+    enabled: true
     command: npx
     args: ["-y", "@modelcontextprotocol/server-memory"]
-    enabled: true
-    
+
   # Custom MCP servers that need cloning/building
+  - name: rallyhere-comfy
+    enabled: true
+    repository: https://github.com/prophecygamestudio/comfyui-mcp-server
+    command: uv
+    args: ["--directory", "~/Documents/gamedev-tools/mcp/comfyui-mcp-server", "run", "src\\server.py"]
+    env:
+      comfyui_host: sparky1.hirezcorp.com
+
   - name: godot-mcp
-    command: node
-    args: ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]
-    repository: https://github.com/RallyHereInteractive/godot-mcp
+    enabled: true
     buildCommands:
       - npm install
       - npm run build
-    enabled: true
-
+    repository: https://github.com/RallyHereInteractive/godot-mcp
+    command: node
+    args: ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]

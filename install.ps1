@@ -618,6 +618,11 @@ function Normalize-MCPPaths {
         [PSCustomObject]$McpServerConfig
     )
     
+    # Skip normalization for URL-based MCPs
+    if ($McpServerConfig.PSObject.Properties.Name -contains "url") {
+        return $McpServerConfig
+    }
+    
     $homePath = $env:USERPROFILE
     
     # Helper function to normalize a single path string
@@ -721,26 +726,46 @@ function Convert-MCPToCursorJson {
             
             $serverConfig = @{}
             
-            if ($server.command) {
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $serverConfig.url = $server.url
+                # URL-based configs don't need path normalization
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
                 $serverConfig.command = $server.command
+                
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+                
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+                
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Normalize-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
             }
-            
-            if ($server.args) {
-                $serverConfig.args = $server.args
-            }
-            
-            if ($server.env) {
-                $serverConfig.env = $server.env
-            }
-            
-            # Normalize paths in the config
-            $serverConfigObj = [PSCustomObject]$serverConfig
-            $normalizedConfig = Normalize-MCPPaths -McpServerConfig $serverConfigObj
             
             # Convert back to hashtable for JSON serialization
             $finalConfig = @{}
             foreach ($prop in $normalizedConfig.PSObject.Properties) {
-                $finalConfig[$prop.Name] = $prop.Value
+                # If the property is env (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if ($prop.Name -eq "env" -and $prop.Value -is [PSCustomObject]) {
+                    $envHashtable = @{}
+                    foreach ($envKey in $prop.Value.PSObject.Properties.Name) {
+                        $envHashtable[$envKey] = $prop.Value.$envKey
+                    }
+                    $finalConfig[$prop.Name] = $envHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
             }
             
             $mcpServers[$serverName] = $finalConfig
@@ -811,28 +836,49 @@ function Convert-MCPToCodexToml {
             # Build TOML section for this server
             $section = "[mcp_servers.$serverName]`n"
             
-            if ($server.command) {
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $section += "url = `"$($server.url)`"`n"
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
                 $section += "command = `"$($server.command)`"`n"
-            }
-            
-            if ($server.args) {
-                # Convert args array to TOML format
-                $argsList = @()
-                foreach ($arg in $server.args) {
-                    # Escape quotes in arguments
-                    $escapedArg = $arg -replace '"', '\"'
-                    $argsList += "`"$escapedArg`""
+                
+                if ($server.args) {
+                    # Convert args array to TOML format
+                    $argsList = @()
+                    foreach ($arg in $server.args) {
+                        # Escape quotes in arguments
+                        $escapedArg = $arg -replace '"', '\"'
+                        $argsList += "`"$escapedArg`""
+                    }
+                    $argsStr = $argsList -join ", "
+                    $section += "args = [$argsStr]`n"
                 }
-                $argsStr = $argsList -join ", "
-                $section += "args = [$argsStr]`n"
-            }
-            
-            if ($server.env) {
-                $section += "`n[mcp_servers.$serverName.env]`n"
-                foreach ($key in $server.env.PSObject.Properties.Name) {
-                    $value = $server.env.$key
-                    $section += "$key = `"$value`"`n"
+                
+                if ($server.env) {
+                    $section += "`n[mcp_servers.$serverName.env]`n"
+                    # Handle both PSCustomObject and hashtable/dictionary types
+                    if ($server.env -is [PSCustomObject]) {
+                        foreach ($key in $server.env.PSObject.Properties.Name) {
+                            $value = $server.env.$key
+                            # Escape quotes in values
+                            $escapedValue = $value -replace '"', '\"'
+                            $section += "$key = `"$escapedValue`"`n"
+                        }
+                    } elseif ($server.env -is [Hashtable] -or $server.env -is [System.Collections.IDictionary]) {
+                        foreach ($key in $server.env.Keys) {
+                            $value = $server.env[$key]
+                            # Escape quotes in values
+                            $escapedValue = $value -replace '"', '\"'
+                            $section += "$key = `"$escapedValue`"`n"
+                        }
+                    }
                 }
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
             }
             
             # Add optional Codex-specific fields

@@ -3,20 +3,10 @@
 # It generates both Cursor JSON (~/.cursor/mcp.json) and Codex TOML (~/.codex/config.toml) formats
 servers:
   # Standard MCP servers
-  - name: filesystem
-    enabled: true
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-
-  - name: git
-    enabled: true
-    command: uvx
-    args: ["mcp-server-git", "--repository", "."]
- 
-  - name: memory
-    enabled: true
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-memory"]
+  # - name: filesystem
+  #   enabled: true
+  #   command: npx
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
 
   # Custom MCP servers that need cloning/building
   - name: rallyhere-comfy

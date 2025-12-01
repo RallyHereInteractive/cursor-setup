@@ -1461,8 +1461,182 @@ try {
 }
 Write-Host ""
 
-# Step 10: Install uv and Python 3.11
-Write-ColorOutput "Step 10: Installing uv and Python 3.11..." "Cyan"
+# Step 10: Install Godot
+Write-ColorOutput "Step 10: Installing Godot Game Engine..." "Cyan"
+try {
+    $godotPath = "C:\Program Files\Godot\Godot.exe"
+    $godotInstalled = $false
+    
+    if (Test-Path $godotPath) {
+        Write-ColorOutput "Godot is already installed at: $godotPath" "Green"
+        $godotInstalled = $true
+        
+        # Try to get version info
+        try {
+            $godotVersion = & $godotPath --version 2>&1 | Select-Object -First 1
+            if ($godotVersion) {
+                Write-ColorOutput "Current version: $godotVersion" "Gray"
+            }
+        } catch {
+            # Silent fail - version check is optional
+        }
+    } else {
+        Write-ColorOutput "Installing Godot 4.5.1..." "Yellow"
+        
+        # Define installation variables
+        $godotDownloadUrl = "https://github.com/godotengine/godot/releases/download/4.5.1-stable/Godot_v4.5.1-stable_win64.exe.zip"
+        $godotZipPath = "$env:TEMP\Godot_v4.5.1-stable_win64.exe.zip"
+        $godotTempExtractPath = "$env:TEMP\GodotExtract"
+        $godotExpectedChecksum = "DEFCCC78669E644861B4247626B01AE362CD9F23975EDF19C8BFD2EB1F6A1783"
+        $godotInstallDir = "C:\Program Files\Godot"
+        
+        try {
+            # Download Godot
+            Write-ColorOutput "Downloading Godot from GitHub releases..." "Yellow"
+            Invoke-WebRequest -Uri $godotDownloadUrl -OutFile $godotZipPath -UseBasicParsing
+            
+            # Verify checksum
+            Write-ColorOutput "Verifying download integrity..." "Yellow"
+            $calculatedChecksum = (Get-FileHash -Path $godotZipPath -Algorithm SHA256).Hash
+            
+            if ($calculatedChecksum -ne $godotExpectedChecksum) {
+                Write-ColorOutput "Checksum verification failed!" "Red"
+                Write-ColorOutput "Expected: $godotExpectedChecksum" "Red"
+                Write-ColorOutput "Got: $calculatedChecksum" "Red"
+                Write-ColorOutput "The download may be corrupted. Skipping Godot installation." "Red"
+                
+                # Clean up failed download
+                if (Test-Path $godotZipPath) {
+                    Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
+                }
+            } else {
+                Write-ColorOutput "Checksum verified successfully!" "Green"
+                
+                # Create installation directory if it doesn't exist
+                if (-not (Test-Path $godotInstallDir)) {
+                    New-Item -ItemType Directory -Path $godotInstallDir -Force | Out-Null
+                    Write-ColorOutput "Created Godot directory: $godotInstallDir" "Gray"
+                }
+                
+                # Extract the ZIP file to temp location first
+                Write-ColorOutput "Extracting Godot..." "Yellow"
+                if (Test-Path $godotTempExtractPath) {
+                    Remove-Item $godotTempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                Expand-Archive -Path $godotZipPath -DestinationPath $godotTempExtractPath -Force
+                
+                # Find the Godot executable in the extracted files
+                $extractedExe = Get-ChildItem -Path $godotTempExtractPath -Filter "Godot*.exe" -Recurse | Select-Object -First 1
+                
+                if ($extractedExe) {
+                    # Move the executable to the installation directory
+                    $targetPath = Join-Path $godotInstallDir "Godot.exe"
+                    Move-Item -Path $extractedExe.FullName -Destination $targetPath -Force
+                    
+                    # Also check if there's a console version and copy it
+                    $consoleExe = Get-ChildItem -Path $godotTempExtractPath -Filter "*console*.exe" -Recurse | Select-Object -First 1
+                    if ($consoleExe) {
+                        $consoleTargetPath = Join-Path $godotInstallDir "Godot_console.exe"
+                        Move-Item -Path $consoleExe.FullName -Destination $consoleTargetPath -Force
+                        Write-ColorOutput "Console version also installed: $consoleTargetPath" "Gray"
+                    }
+                    
+                    Write-ColorOutput "Godot installed successfully to: $targetPath" "Green"
+                    $godotInstalled = $true
+                    
+                    # Add Godot to PATH for current session
+                    if ($env:Path -notlike "*$godotInstallDir*") {
+                        $env:Path = "$godotInstallDir;$env:Path"
+                        Write-ColorOutput "Added Godot to PATH for current session" "Gray"
+                    }
+                    
+                    # Add Godot to system PATH permanently (requires admin)
+                    if ($isAdmin) {
+                        try {
+                            $currentSystemPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+                            if ($currentSystemPath -notlike "*$godotInstallDir*") {
+                                [Environment]::SetEnvironmentVariable("Path", "$godotInstallDir;$currentSystemPath", "Machine")
+                                Write-ColorOutput "Added Godot to system PATH permanently" "Green"
+                            }
+                        } catch {
+                            Write-ColorOutput "Could not add Godot to system PATH: $_" "Yellow"
+                            Write-ColorOutput "You may need to add '$godotInstallDir' to your PATH manually" "Yellow"
+                        }
+                    } else {
+                        Write-ColorOutput "Note: Running without admin privileges. Godot was not added to system PATH." "Yellow"
+                        Write-ColorOutput "You may want to add '$godotInstallDir' to your PATH manually." "Yellow"
+                    }
+                    
+                    # Verify installation
+                    if (Test-Path $targetPath) {
+                        try {
+                            $godotVersion = & $targetPath --version 2>&1 | Select-Object -First 1
+                            if ($godotVersion) {
+                                Write-ColorOutput "Installed version: $godotVersion" "Green"
+                            }
+                        } catch {
+                            Write-ColorOutput "Godot installed but version check failed. This is normal for GUI applications." "Gray"
+                        }
+                    }
+                } else {
+                    Write-ColorOutput "Error: Could not find Godot executable in the extracted files" "Red"
+                    Write-ColorOutput "Installation failed. You may need to install Godot manually." "Red"
+                }
+                
+                # Clean up temporary files
+                Write-ColorOutput "Cleaning up temporary files..." "Gray"
+                if (Test-Path $godotTempExtractPath) {
+                    Remove-Item $godotTempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            
+            # Always clean up the ZIP file
+            if (Test-Path $godotZipPath) {
+                Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
+            }
+            
+        } catch {
+            Write-ColorOutput "Error installing Godot: $_" "Red"
+            Write-ColorOutput "You may need to install Godot manually from: https://godotengine.org/download" "Yellow"
+            
+            # Clean up on error
+            if (Test-Path $godotZipPath) {
+                Remove-Item $godotZipPath -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path $godotTempExtractPath) {
+                Remove-Item $godotTempExtractPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
+    # Create desktop shortcut if Godot is installed and we have admin rights
+    if ($godotInstalled -and $isAdmin) {
+        try {
+            $desktopPath = [Environment]::GetFolderPath("CommonDesktopDirectory")
+            $shortcutPath = "$desktopPath\Godot.lnk"
+            
+            if (-not (Test-Path $shortcutPath)) {
+                $WshShell = New-Object -comObject WScript.Shell
+                $Shortcut = $WshShell.CreateShortcut($shortcutPath)
+                $Shortcut.TargetPath = $godotPath
+                $Shortcut.WorkingDirectory = [Environment]::GetFolderPath("MyDocuments")
+                $Shortcut.IconLocation = $godotPath
+                $Shortcut.Save()
+                Write-ColorOutput "Created desktop shortcut for Godot" "Green"
+            }
+        } catch {
+            Write-ColorOutput "Could not create desktop shortcut: $_" "Yellow"
+        }
+    }
+    
+} catch {
+    Write-ColorOutput "Error during Godot installation: $_" "Red"
+    Write-ColorOutput "Continuing with installation..." "Yellow"
+}
+Write-Host ""
+
+# Step 11: Install uv and Python 3.11
+Write-ColorOutput "Step 11: Installing uv and Python 3.11..." "Cyan"
 try {
     # Check if uv is already installed
     $uvInstalled = $false
@@ -1583,7 +1757,7 @@ try {
 }
 Write-Host ""
 
-# Step 11: Final setup instructions
+# Step 12: Final setup instructions
 Write-ColorOutput "============================================" "Cyan"
 Write-ColorOutput "Setup Complete!" "Green"
 Write-ColorOutput "============================================" "Cyan"
@@ -1594,7 +1768,8 @@ Write-ColorOutput "1. Open Cursor from the Start Menu or Desktop" "White"
 Write-ColorOutput "2. Open the cloned repository folder: $CloneDirectory" "White"
 Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "White"
 Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
-Write-ColorOutput "5. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
+Write-ColorOutput "5. Godot is available at 'C:\Program Files\Godot\Godot.exe' or from the desktop shortcut" "White"
+Write-ColorOutput "6. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
 Write-Host ""
 
 # Launch Cursor if installed

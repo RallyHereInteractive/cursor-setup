@@ -320,6 +320,105 @@ if ($vscodeInstalled -or (Test-Path $vscodePath)) {
 }
 Write-Host ""
 
+# Function to update IDE user settings
+function Update-IDEUserSettings {
+    param(
+        [string]$SettingsPath,
+        [string]$IDEName,
+        [hashtable]$SettingsToAdd
+    )
+    
+    try {
+        # Ensure the directory exists
+        $settingsDir = Split-Path -Path $SettingsPath -Parent
+        if (-not (Test-Path $settingsDir)) {
+            New-Item -ItemType Directory -Path $settingsDir -Force | Out-Null
+            Write-ColorOutput "  Created $IDEName settings directory: $settingsDir" "Gray"
+        }
+        
+        # Read existing settings if file exists
+        $existingSettings = @{}
+        if (Test-Path $SettingsPath) {
+            try {
+                $existingContent = Get-Content $SettingsPath -Raw -ErrorAction Stop
+                $jsonObj = $existingContent | ConvertFrom-Json -ErrorAction Stop
+                Write-ColorOutput "  Found existing $IDEName settings.json" "Gray"
+                
+                # Convert PSCustomObject to hashtable for easier manipulation
+                # PowerShell 5.1 doesn't support -AsHashtable, so we do it manually
+                foreach ($prop in $jsonObj.PSObject.Properties) {
+                    $existingSettings[$prop.Name] = $prop.Value
+                }
+            } catch {
+                Write-ColorOutput "  Warning: Could not parse existing $IDEName settings.json, creating new file" "Yellow"
+                $existingSettings = @{}
+            }
+        } else {
+            Write-ColorOutput "  Creating new $IDEName settings.json" "Gray"
+        }
+        
+        # Merge new settings with existing settings
+        $settingsUpdated = $false
+        foreach ($key in $SettingsToAdd.Keys) {
+            $value = $SettingsToAdd[$key]
+            if (-not $existingSettings.ContainsKey($key) -or $existingSettings[$key] -ne $value) {
+                $existingSettings[$key] = $value
+                $settingsUpdated = $true
+                Write-ColorOutput "    Set $key = $value" "Green"
+            } else {
+                Write-ColorOutput "    $key already set to $value" "Gray"
+            }
+        }
+        
+        # Write updated settings back to file
+        if ($settingsUpdated -or -not (Test-Path $SettingsPath)) {
+            # Convert hashtable to PSCustomObject for JSON serialization
+            $settingsObj = New-Object PSObject
+            foreach ($key in $existingSettings.Keys) {
+                $settingsObj | Add-Member -MemberType NoteProperty -Name $key -Value $existingSettings[$key]
+            }
+            $jsonContent = $settingsObj | ConvertTo-Json -Depth 10
+            $jsonContent | Set-Content $SettingsPath -Encoding UTF8 -ErrorAction Stop
+            Write-ColorOutput "  $IDEName settings.json updated successfully!" "Green"
+            return $true
+        } else {
+            Write-ColorOutput "  $IDEName settings.json already up to date" "Green"
+            return $true
+        }
+    } catch {
+        Write-ColorOutput "  Error updating $IDEName settings: $_" "Red"
+        return $false
+    }
+}
+
+# Step: Configure IDE user settings
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Configuring IDE user settings..." "Cyan"
+
+# Define settings to apply
+$ideSettings = @{
+    "godotTools.lsp.headless" = $true
+}
+
+# Configure Cursor settings
+if ($cursorInstalled -or (Test-Path $cursorPath)) {
+    Write-ColorOutput "  Configuring Cursor user settings..." "Yellow"
+    $cursorSettingsPath = "$env:APPDATA\Cursor\User\settings.json"
+    Update-IDEUserSettings -SettingsPath $cursorSettingsPath -IDEName "Cursor" -SettingsToAdd $ideSettings | Out-Null
+} else {
+    Write-ColorOutput "  Cursor is not installed, skipping settings configuration." "Gray"
+}
+
+# Configure Visual Studio Code settings
+if ($vscodeInstalled -or (Test-Path $vscodePath)) {
+    Write-ColorOutput "  Configuring Visual Studio Code user settings..." "Yellow"
+    $vscodeSettingsPath = "$env:APPDATA\Code\User\settings.json"
+    Update-IDEUserSettings -SettingsPath $vscodeSettingsPath -IDEName "Visual Studio Code" -SettingsToAdd $ideSettings | Out-Null
+} else {
+    Write-ColorOutput "  Visual Studio Code is not installed, skipping settings configuration." "Gray"
+}
+Write-Host ""
+
 # Step: Clone the repository
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Cloning studio configuration repository..." "Cyan"

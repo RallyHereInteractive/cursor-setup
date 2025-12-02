@@ -25,9 +25,9 @@ servers:
 
   - name: godot-mcp
     enabled: true
-    agents: ["codex"]  # Only install for Codex, not for Cursor
+    agents: ["codex"]
     buildCommands:
-      - npm install
+      - npm ci
       - npm run build
     repository: https://github.com/RallyHereInteractive/godot-mcp
     command: node

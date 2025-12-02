@@ -1075,6 +1075,11 @@ function Convert-MCPToCodexToml {
             # Build TOML section for this server
             $section = "[mcp_servers.$serverName]`n"
             
+            # Add 'enabled' field first at server level (before env section to avoid it being placed in env section)
+            if ($null -ne $server.enabled) {
+                $section += "enabled = $($server.enabled.ToString().ToLower())`n"
+            }
+            
             # Handle URL-based MCPs
             if ($server.url) {
                 $section += "url = `"$($server.url)`"`n"
@@ -1095,38 +1100,6 @@ function Convert-MCPToCodexToml {
                     }
                     $argsStr = $argsList -join ", "
                     $section += "args = [$argsStr]`n"
-                }
-                
-                if ($server.env) {
-                    $section += "`n[mcp_servers.$serverName.env]`n"
-                    # Handle both PSCustomObject and hashtable/dictionary types
-                    if ($server.env -is [PSCustomObject]) {
-                        foreach ($key in $server.env.PSObject.Properties.Name) {
-                            # Skip 'enabled' as it's not an environment variable
-                            if ($key -eq "enabled") {
-                                continue
-                            }
-                            $value = $server.env.$key
-                            # Convert value to string (handles booleans, numbers, etc.)
-                            $stringValue = $value.ToString()
-                            # Escape quotes in values
-                            $escapedValue = $stringValue -replace '"', '\"'
-                            $section += "$key = `"$escapedValue`"`n"
-                        }
-                    } elseif ($server.env -is [Hashtable] -or $server.env -is [System.Collections.IDictionary]) {
-                        foreach ($key in $server.env.Keys) {
-                            # Skip 'enabled' as it's not an environment variable
-                            if ($key -eq "enabled") {
-                                continue
-                            }
-                            $value = $server.env[$key]
-                            # Convert value to string (handles booleans, numbers, etc.)
-                            $stringValue = $value.ToString()
-                            # Escape quotes in values
-                            $escapedValue = $stringValue -replace '"', '\"'
-                            $section += "$key = `"$escapedValue`"`n"
-                        }
-                    }
                 }
             } else {
                 # No command or url, skip this server
@@ -1153,8 +1126,29 @@ function Convert-MCPToCodexToml {
                 $section += "disabled_tools = [`"$toolsStr`"]`n"
             }
             
-            if ($null -ne $server.enabled) {
-                $section += "enabled = $($server.enabled.ToString().ToLower())`n"
+            # Add env section last (after all server-level fields)
+            if ($server.env) {
+                $section += "`n[mcp_servers.$serverName.env]`n"
+                # Handle both PSCustomObject and hashtable/dictionary types
+                if ($server.env -is [PSCustomObject]) {
+                    foreach ($key in $server.env.PSObject.Properties.Name) {
+                        $value = $server.env.$key
+                        # Convert value to string (handles booleans, numbers, etc.)
+                        $stringValue = $value.ToString()
+                        # Escape quotes in values
+                        $escapedValue = $stringValue -replace '"', '\"'
+                        $section += "$key = `"$escapedValue`"`n"
+                    }
+                } elseif ($server.env -is [Hashtable] -or $server.env -is [System.Collections.IDictionary]) {
+                    foreach ($key in $server.env.Keys) {
+                        $value = $server.env[$key]
+                        # Convert value to string (handles booleans, numbers, etc.)
+                        $stringValue = $value.ToString()
+                        # Escape quotes in values
+                        $escapedValue = $stringValue -replace '"', '\"'
+                        $section += "$key = `"$escapedValue`"`n"
+                    }
+                }
             }
             
             $tomlSections += $section

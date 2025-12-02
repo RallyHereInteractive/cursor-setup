@@ -833,6 +833,19 @@ function Convert-MCPToCursorJson {
                 continue
             }
             
+            # Check if server should be included for Cursor
+            # If agents field is specified, only include if "cursor" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "cursor") {
+                    continue
+                }
+            }
+            
             $serverName = $server.name
             if ([string]::IsNullOrEmpty($serverName)) {
                 continue
@@ -940,6 +953,19 @@ function Convert-MCPToCodexToml {
             # Skip disabled servers
             if ($server.enabled -eq $false) {
                 continue
+            }
+            
+            # Check if server should be included for Codex
+            # If agents field is specified, only include if "codex" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "codex") {
+                    continue
+                }
             }
             
             $serverName = $server.name

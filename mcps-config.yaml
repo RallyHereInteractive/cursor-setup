@@ -1,6 +1,12 @@
 # Unified MCP Configuration
 # This file is the single source of truth for MCP server configuration
 # It generates both Cursor JSON (~/.cursor/mcp.json) and Codex TOML (~/.codex/config.toml) formats
+#
+# Agent-specific configuration:
+#   - Use the 'agents' field to specify which agents should include this server
+#   - Valid values: ["cursor"], ["codex"], or ["cursor", "codex"]
+#   - If 'agents' is not specified, the server will be included for all agents
+#   - Example: agents: ["codex"]  # Only install for Codex, not for Cursor
 servers:
   # Standard MCP servers
   # - name: filesystem
@@ -18,7 +24,8 @@ servers:
       comfyui_host: sparky1.hirezcorp.com
 
   - name: godot-mcp
-    enabled: false
+    enabled: true
+    agents: ["codex"]  # Only install for Codex, not for Cursor
     buildCommands:
       - npm install
       - npm run build

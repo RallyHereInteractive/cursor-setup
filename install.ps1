@@ -962,8 +962,10 @@ function Convert-MCPToCodexToml {
                     # Convert args array to TOML format
                     $argsList = @()
                     foreach ($arg in $server.args) {
+                        # Convert backslashes to forward slashes for TOML compatibility
+                        $normalizedArg = $arg -replace '\\', '/'
                         # Escape quotes in arguments
-                        $escapedArg = $arg -replace '"', '\"'
+                        $escapedArg = $normalizedArg -replace '"', '\"'
                         $argsList += "`"$escapedArg`""
                     }
                     $argsStr = $argsList -join ", "
@@ -976,15 +978,19 @@ function Convert-MCPToCodexToml {
                     if ($server.env -is [PSCustomObject]) {
                         foreach ($key in $server.env.PSObject.Properties.Name) {
                             $value = $server.env.$key
+                            # Convert value to string (handles booleans, numbers, etc.)
+                            $stringValue = $value.ToString()
                             # Escape quotes in values
-                            $escapedValue = $value -replace '"', '\"'
+                            $escapedValue = $stringValue -replace '"', '\"'
                             $section += "$key = `"$escapedValue`"`n"
                         }
                     } elseif ($server.env -is [Hashtable] -or $server.env -is [System.Collections.IDictionary]) {
                         foreach ($key in $server.env.Keys) {
                             $value = $server.env[$key]
+                            # Convert value to string (handles booleans, numbers, etc.)
+                            $stringValue = $value.ToString()
                             # Escape quotes in values
-                            $escapedValue = $value -replace '"', '\"'
+                            $escapedValue = $stringValue -replace '"', '\"'
                             $section += "$key = `"$escapedValue`"`n"
                         }
                     }
@@ -1127,7 +1133,7 @@ function Merge-CodexTomlConfig {
         if (-not $mergedContent.EndsWith("`n")) {
             $mergedContent += "`n"
         }
-        $mergedContent += "`n# MCP Servers (managed by cursor-setup)`n"
+        $mergedContent += "`n"
         $mergedContent += $NewTomlContent
         
         $mergedContent | Set-Content $ExistingConfigPath -Encoding UTF8

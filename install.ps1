@@ -977,6 +977,10 @@ function Convert-MCPToCodexToml {
                     # Handle both PSCustomObject and hashtable/dictionary types
                     if ($server.env -is [PSCustomObject]) {
                         foreach ($key in $server.env.PSObject.Properties.Name) {
+                            # Skip 'enabled' as it's not an environment variable
+                            if ($key -eq "enabled") {
+                                continue
+                            }
                             $value = $server.env.$key
                             # Convert value to string (handles booleans, numbers, etc.)
                             $stringValue = $value.ToString()
@@ -986,6 +990,10 @@ function Convert-MCPToCodexToml {
                         }
                     } elseif ($server.env -is [Hashtable] -or $server.env -is [System.Collections.IDictionary]) {
                         foreach ($key in $server.env.Keys) {
+                            # Skip 'enabled' as it's not an environment variable
+                            if ($key -eq "enabled") {
+                                continue
+                            }
                             $value = $server.env[$key]
                             # Convert value to string (handles booleans, numbers, etc.)
                             $stringValue = $value.ToString()

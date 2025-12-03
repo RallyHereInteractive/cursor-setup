@@ -4,13 +4,15 @@
 #   - Cursor JSON (~/.cursor/mcp.json)
 #   - Codex TOML (~/.codex/config.toml)
 #   - Claude Desktop JSON (%APPDATA%\Claude\claude_desktop_config.json)
+#   - Claude Code JSON (~/.claude.json)
 #
 # Agent-specific configuration:
 #   - Use the 'agents' field to specify which agents should include this server
-#   - Valid values: ["cursor"], ["codex"], ["claude"], or any combination
+#   - Valid values: ["cursor"], ["codex"], ["claude-desktop"], ["claude-code"], or any combination
 #   - If 'agents' is not specified, the server will be included for all agents
 #   - Example: agents: ["codex"]  # Only install for Codex
-#   - Example: agents: ["cursor", "claude"]  # Install for Cursor and Claude Desktop
+#   - Example: agents: ["cursor", "claude-desktop"]  # Install for Cursor and Claude Desktop
+#   - Example: agents: ["claude-code"]  # Only install for Claude Code CLI
 servers:
   # Standard MCP servers
   # - name: filesystem

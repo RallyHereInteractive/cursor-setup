@@ -1078,14 +1078,14 @@ function Convert-MCPToClaudeJson {
             }
 
             # Check if server should be included for Claude Desktop
-            # If agents field is specified, only include if "claude" is in the list
+            # If agents field is specified, only include if "claude-desktop" is in the list
             # If agents field is not specified, include for all agents (backward compatible)
             if ($server.agents) {
                 $agentsList = $server.agents
                 if ($agentsList -isnot [Array]) {
                     $agentsList = @($agentsList)
                 }
-                if ($agentsList -notcontains "claude") {
+                if ($agentsList -notcontains "claude-desktop") {
                     continue
                 }
             }
@@ -1151,6 +1151,225 @@ function Convert-MCPToClaudeJson {
     } catch {
         Write-ColorOutput "Error converting MCP config to Claude Desktop JSON: $_" "Red"
         return $null
+    }
+}
+
+# Function to convert unified YAML MCP config to Claude Code JSON format
+# Claude Code stores MCPs in ~/.claude.json under the "mcpServers" key
+function Convert-MCPToClaudeCodeJson {
+    param(
+        [string]$YamlConfigPath
+    )
+
+    if (-not (Test-Path $YamlConfigPath)) {
+        Write-ColorOutput "Unified MCP config not found at: $YamlConfigPath" "Yellow"
+        return $null
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot convert MCP configuration." "Red"
+        return $null
+    }
+
+    try {
+        # Read servers from YAML
+        $yqOutput = yq eval '.servers' $YamlConfigPath -o json 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-ColorOutput "Warning: Could not parse unified MCP config: $yqOutput" "Yellow"
+            return $null
+        }
+
+        $servers = $yqOutput | ConvertFrom-Json
+
+        if ($null -eq $servers) {
+            return $null
+        }
+
+        if ($servers -isnot [Array]) {
+            $servers = @($servers)
+        }
+
+        # Build Claude Code JSON structure
+        $mcpServers = @{}
+
+        foreach ($server in $servers) {
+            # Skip disabled servers
+            if ($server.enabled -eq $false) {
+                continue
+            }
+
+            # Check if server should be included for Claude Code
+            # If agents field is specified, only include if "claude-code" is in the list
+            # If agents field is not specified, include for all agents (backward compatible)
+            if ($server.agents) {
+                $agentsList = $server.agents
+                if ($agentsList -isnot [Array]) {
+                    $agentsList = @($agentsList)
+                }
+                if ($agentsList -notcontains "claude-code") {
+                    continue
+                }
+            }
+
+            $serverName = $server.name
+            if ([string]::IsNullOrEmpty($serverName)) {
+                continue
+            }
+
+            $serverConfig = @{}
+
+            # Handle URL-based MCPs
+            if ($server.url) {
+                $serverConfig.url = $server.url
+                # URL-based configs don't need path normalization
+                $normalizedConfig = [PSCustomObject]$serverConfig
+            }
+            # Handle command-based MCPs
+            elseif ($server.command) {
+                $serverConfig.command = $server.command
+
+                if ($server.args) {
+                    $serverConfig.args = $server.args
+                }
+
+                if ($server.env) {
+                    $serverConfig.env = $server.env
+                }
+
+                # Normalize paths in the config (only for command-based configs)
+                $serverConfigObj = [PSCustomObject]$serverConfig
+                $normalizedConfig = Convert-MCPPaths -McpServerConfig $serverConfigObj
+            } else {
+                # No command or url, skip this server
+                Write-ColorOutput "  Warning: Server '$serverName' has neither 'command' nor 'url', skipping" "Yellow"
+                continue
+            }
+
+            # Convert back to hashtable for JSON serialization
+            $finalConfig = @{}
+            foreach ($prop in $normalizedConfig.PSObject.Properties) {
+                # If the property is env (PSCustomObject), convert it to hashtable for proper JSON serialization
+                if ($prop.Name -eq "env" -and $prop.Value -is [PSCustomObject]) {
+                    $envHashtable = @{}
+                    foreach ($envKey in $prop.Value.PSObject.Properties.Name) {
+                        $envHashtable[$envKey] = $prop.Value.$envKey
+                    }
+                    $finalConfig[$prop.Name] = $envHashtable
+                } else {
+                    $finalConfig[$prop.Name] = $prop.Value
+                }
+            }
+
+            $mcpServers[$serverName] = $finalConfig
+        }
+
+        # Create the JSON structure (Claude Code uses mcpServers at root level of ~/.claude.json)
+        $result = @{
+            mcpServers = $mcpServers
+        }
+
+        return $result
+    } catch {
+        Write-ColorOutput "Error converting MCP config to Claude Code JSON: $_" "Red"
+        return $null
+    }
+}
+
+# Function to merge Claude Code MCP configuration
+# Claude Code stores config in ~/.claude.json which may have other settings we need to preserve
+function Merge-ClaudeCodeConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [hashtable]$NewMcpConfig
+    )
+
+    if ($null -eq $NewMcpConfig -or $NewMcpConfig.Count -eq 0) {
+        Write-ColorOutput "No new MCP configuration to merge for Claude Code" "Yellow"
+        return $false
+    }
+
+    try {
+        $existingConfig = @{}
+        $existingMcpServers = @{}
+
+        # Read existing config if it exists
+        if (Test-Path $ExistingConfigPath) {
+            try {
+                $existingContent = Get-Content $ExistingConfigPath -Raw -ErrorAction Stop
+                $jsonObj = $existingContent | ConvertFrom-Json -ErrorAction Stop
+                Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
+
+                # Convert PSCustomObject to hashtable for easier manipulation
+                foreach ($prop in $jsonObj.PSObject.Properties) {
+                    if ($prop.Name -eq "mcpServers" -and $prop.Value) {
+                        foreach ($serverProp in $prop.Value.PSObject.Properties) {
+                            $existingMcpServers[$serverProp.Name] = $serverProp.Value
+                        }
+                    } else {
+                        $existingConfig[$prop.Name] = $prop.Value
+                    }
+                }
+            } catch {
+                Write-ColorOutput "Warning: Could not parse existing Claude Code config, creating new file" "Yellow"
+                $existingConfig = @{}
+                $existingMcpServers = @{}
+            }
+        } else {
+            Write-ColorOutput "Creating new Claude Code config at: $ExistingConfigPath" "Gray"
+        }
+
+        # Merge new MCP servers
+        $newMcpServers = $NewMcpConfig.mcpServers
+        $addedCount = 0
+
+        foreach ($serverName in $newMcpServers.Keys) {
+            if (-not $existingMcpServers.ContainsKey($serverName)) {
+                $existingMcpServers[$serverName] = $newMcpServers[$serverName]
+                $addedCount++
+                Write-ColorOutput "  Added MCP server to Claude Code: $serverName" "Green"
+            } else {
+                Write-ColorOutput "  MCP server '$serverName' already exists in Claude Code config, preserving existing configuration" "Yellow"
+            }
+        }
+
+        if ($addedCount -eq 0 -and $newMcpServers.Count -gt 0) {
+            Write-ColorOutput "All required MCP servers are already configured in Claude Code" "Green"
+        }
+
+        # Build the final config object
+        $finalConfig = New-Object PSObject
+
+        # Add existing non-MCP properties first
+        foreach ($key in $existingConfig.Keys) {
+            $finalConfig | Add-Member -MemberType NoteProperty -Name $key -Value $existingConfig[$key]
+        }
+
+        # Add mcpServers
+        $mcpServersObj = New-Object PSObject
+        foreach ($serverName in $existingMcpServers.Keys) {
+            $serverConfig = $existingMcpServers[$serverName]
+            # If it's already a PSCustomObject, use it directly; otherwise convert
+            if ($serverConfig -is [PSCustomObject]) {
+                $mcpServersObj | Add-Member -MemberType NoteProperty -Name $serverName -Value $serverConfig
+            } else {
+                $serverObj = New-Object PSObject
+                foreach ($propKey in $serverConfig.Keys) {
+                    $serverObj | Add-Member -MemberType NoteProperty -Name $propKey -Value $serverConfig[$propKey]
+                }
+                $mcpServersObj | Add-Member -MemberType NoteProperty -Name $serverName -Value $serverObj
+            }
+        }
+        $finalConfig | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value $mcpServersObj
+
+        # Write the config file
+        $jsonContent = $finalConfig | ConvertTo-Json -Depth 10
+        $jsonContent | Set-Content $ExistingConfigPath -Encoding UTF8 -ErrorAction Stop
+        Write-ColorOutput "Claude Code configuration updated successfully!" "Green"
+        return $true
+    } catch {
+        Write-ColorOutput "Error merging Claude Code config: $_" "Red"
+        return $false
     }
 }
 
@@ -1770,6 +1989,25 @@ try {
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Claude Desktop JSON: $_" "Yellow"
+                }
+            }
+
+            # Configure Claude Code MCP (JSON format at ~/.claude.json)
+            $claudeCodeConfigPath = "$env:USERPROFILE\.claude.json"
+
+            if (Test-Path $claudeCodeConfigPath) {
+                Write-ColorOutput "Found existing Claude Code config at: $claudeCodeConfigPath" "Gray"
+            }
+
+            if ($useUnifiedConfig) {
+                # Use unified config - convert to Claude Code JSON
+                try {
+                    $claudeCodeJsonConfig = Convert-MCPToClaudeCodeJson -YamlConfigPath $unifiedMcpConfigPath
+                    if ($null -ne $claudeCodeJsonConfig) {
+                        Merge-ClaudeCodeConfig -ExistingConfigPath $claudeCodeConfigPath -NewMcpConfig $claudeCodeJsonConfig
+                    }
+                } catch {
+                    Write-ColorOutput "Warning: Could not convert unified config to Claude Code JSON: $_" "Yellow"
                 }
             }
         }

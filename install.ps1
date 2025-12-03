@@ -245,6 +245,45 @@ if (Test-Path $vscodePath) {
 }
 Write-Host ""
 
+# Step: Install Claude Code
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing Claude Code..." "Cyan"
+$claudeCodeInstalled = $false
+if (Test-CommandExists "claude") {
+    Write-ColorOutput "Claude Code is already installed." "Yellow"
+    $claudeVersion = claude --version 2>&1
+    Write-ColorOutput "Current version: $claudeVersion" "Gray"
+    $claudeCodeInstalled = $true
+} else {
+    Write-ColorOutput "Installing Claude Code..." "Yellow"
+    try {
+        # Install Claude Code using the official PowerShell installer
+        Invoke-RestMethod https://claude.ai/install.ps1 | Invoke-Expression
+
+        # Refresh PATH to include Claude Code
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+        # Wait a moment for PATH to propagate
+        Start-Sleep -Seconds 2
+
+        # Verify Claude Code is now available
+        if (Test-CommandExists "claude") {
+            Write-ColorOutput "Claude Code installed successfully!" "Green"
+            $claudeVersion = claude --version 2>&1
+            Write-ColorOutput "Version: $claudeVersion" "Gray"
+            $claudeCodeInstalled = $true
+        } else {
+            Write-ColorOutput "Warning: Claude Code installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+            Write-ColorOutput "Continuing with installation..." "Yellow"
+            $claudeCodeInstalled = $true  # Assume it's installed, just not in PATH yet
+        }
+    } catch {
+        Write-ColorOutput "Error installing Claude Code: $_" "Red"
+        Write-ColorOutput "You can install Claude Code manually by running: irm https://claude.ai/install.ps1 | iex" "Yellow"
+    }
+}
+Write-Host ""
+
 # Step: Install IDE extensions
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"
@@ -2021,7 +2060,8 @@ Write-ColorOutput "2. Open the cloned repository folder: $CloneDirectory" "White
 Write-ColorOutput "3. Review the .cursor folder for rules and configuration" "White"
 Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
 Write-ColorOutput "5. Godot is available at 'C:\Program Files\Godot\Godot.exe' or from the desktop shortcut" "White"
-Write-ColorOutput "6. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
+Write-ColorOutput "6. Run 'claude' in your terminal to start Claude Code and authenticate" "White"
+Write-ColorOutput "7. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
 Write-Host ""
 
 # Launch Cursor if installed

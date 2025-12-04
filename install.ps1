@@ -1393,6 +1393,114 @@ function Merge-ClaudeCodeConfig {
     }
 }
 
+# Function to merge Claude Desktop MCP configuration using yq
+# Claude Desktop stores config in %APPDATA%\Claude\claude_desktop_config.json
+# Uses yq for graceful deep merging that preserves all existing settings
+function Merge-ClaudeDesktopConfig {
+    param(
+        [string]$ExistingConfigPath,
+        [hashtable]$NewMcpConfig
+    )
+
+    if ($null -eq $NewMcpConfig -or $NewMcpConfig.Count -eq 0) {
+        Write-ColorOutput "No new MCP configuration to merge for Claude Desktop" "Yellow"
+        return $false
+    }
+
+    if (-not (Test-CommandExists "yq")) {
+        Write-ColorOutput "yq is not available. Cannot merge Claude Desktop configuration." "Red"
+        return $false
+    }
+
+    try {
+        # Create the config file with empty object if it doesn't exist
+        if (-not (Test-Path $ExistingConfigPath)) {
+            Write-ColorOutput "Creating new Claude Desktop config at: $ExistingConfigPath" "Gray"
+            # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
+            [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
+        } else {
+            Write-ColorOutput "Found existing Claude Desktop config at: $ExistingConfigPath" "Gray"
+        }
+
+        # Get list of existing MCP servers for comparison
+        $existingServers = @()
+        $existingServersOutput = yq eval '.mcpServers | keys | .[]' $ExistingConfigPath -o json 2>&1
+        if ($LASTEXITCODE -eq 0 -and $existingServersOutput) {
+            $existingServers = $existingServersOutput | ForEach-Object { $_.Trim('"') }
+        }
+
+        # Convert new MCP config to JSON for yq to process
+        $newMcpServers = $NewMcpConfig.mcpServers
+        $addedCount = 0
+        $serversToAdd = @{}
+
+        foreach ($serverName in $newMcpServers.Keys) {
+            if ($existingServers -contains $serverName) {
+                Write-ColorOutput "  MCP server '$serverName' already exists in Claude Desktop config, preserving existing configuration" "Yellow"
+            } else {
+                $serversToAdd[$serverName] = $newMcpServers[$serverName]
+                $addedCount++
+            }
+        }
+
+        if ($addedCount -eq 0) {
+            if ($newMcpServers.Count -gt 0) {
+                Write-ColorOutput "All required MCP servers are already configured in Claude Desktop" "Green"
+            }
+            return $true
+        }
+
+        # Create a temporary JSON file with just the new servers to merge using yq
+        $tempJsonPath = [System.IO.Path]::GetTempFileName() -replace '\.tmp$', '.json'
+        try {
+            # Build the merge payload with only new servers and pipe through yq to create clean JSON
+            $mergePayload = @{ mcpServers = $serversToAdd }
+            $mergeJson = $mergePayload | ConvertTo-Json -Depth 10 -Compress
+
+            # Use yq to create the temp file (ensures proper encoding and valid JSON)
+            $mergeJson | yq eval '.' -o json -P | Out-File -FilePath $tempJsonPath -Encoding ascii -NoNewline
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error creating temp JSON file with yq" "Red"
+                return $false
+            }
+
+            # Convert paths to forward slashes for yq
+            $tempJsonPathForYq = $tempJsonPath -replace '\\', '/'
+            $existingPathForYq = $ExistingConfigPath -replace '\\', '/'
+
+            # Use yq to deep merge: existing config with new mcpServers added
+            # The * operator does a deep merge where new values are added
+            $mergedOutput = yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' $existingPathForYq $tempJsonPathForYq -o json 2>&1
+
+            if ($LASTEXITCODE -ne 0) {
+                Write-ColorOutput "Error during yq merge: $mergedOutput" "Red"
+                return $false
+            }
+
+            # Write the merged output back to the config file using yq for consistent encoding
+            # Use -I 2 for 2-space indentation (pretty-print)
+            $mergedOutput | yq eval '.' -o json -I 2 | Out-File -FilePath $ExistingConfigPath -Encoding ascii -NoNewline
+
+            # Report which servers were added
+            foreach ($serverName in $serversToAdd.Keys) {
+                Write-ColorOutput "  Added MCP server to Claude Desktop: $serverName" "Green"
+            }
+
+            Write-ColorOutput "Claude Desktop configuration updated successfully!" "Green"
+            return $true
+        } finally {
+            # Clean up temp file
+            if (Test-Path $tempJsonPath) {
+                Remove-Item $tempJsonPath -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {
+        Write-ColorOutput "Error merging Claude Desktop config: $_" "Red"
+        return $false
+    }
+}
+
 # Function to convert unified YAML MCP config to Codex TOML format
 function Convert-MCPToCodexToml {
     param(
@@ -2001,11 +2109,7 @@ try {
                 try {
                     $claudeJsonConfig = Convert-MCPToClaudeJson -YamlConfigPath $unifiedMcpConfigPath
                     if ($null -ne $claudeJsonConfig) {
-                        # Create temporary JSON file for merging
-                        $tempClaudeJsonPath = "$env:TEMP\claude-mcp-temp.json"
-                        $claudeJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempClaudeJsonPath -Encoding UTF8
-                        Merge-MCPConfig -ExistingConfigPath $claudeConfigPath -NewConfigPath $tempClaudeJsonPath | Out-Null
-                        Remove-Item $tempClaudeJsonPath -ErrorAction SilentlyContinue
+                        Merge-ClaudeDesktopConfig -ExistingConfigPath $claudeConfigPath -NewMcpConfig $claudeJsonConfig | Out-Null
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Claude Desktop JSON: $_" "Yellow"

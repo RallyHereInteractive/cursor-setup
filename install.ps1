@@ -2565,12 +2565,10 @@ Write-Host ""
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing openupm-cli..." "Cyan"
 try {
-    $openupmInstalled = $false
     if (Test-CommandExists "openupm") {
         Write-ColorOutput "openupm-cli is already installed." "Green"
         $openupmVersion = openupm --version 2>&1
         Write-ColorOutput "Current version: $openupmVersion" "Gray"
-        $openupmInstalled = $true
     } else {
         # Check if npm is available
         if (-not (Test-CommandExists "npm")) {
@@ -2593,11 +2591,9 @@ try {
                         $openupmVersion = openupm --version 2>&1
                         Write-ColorOutput "openupm-cli installed successfully!" "Green"
                         Write-ColorOutput "Version: $openupmVersion" "Gray"
-                        $openupmInstalled = $true
                     } else {
                         Write-ColorOutput "Warning: openupm-cli installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
                         Write-ColorOutput "Continuing with installation..." "Yellow"
-                        $openupmInstalled = $true  # Assume it's installed, just not in PATH yet
                     }
                 } else {
                     Write-ColorOutput "Failed to install openupm-cli. Exit code: $LASTEXITCODE" "Red"

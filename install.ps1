@@ -156,6 +156,22 @@ if (-not (Test-CommandExists "winget")) {
 Write-ColorOutput "Winget is available!" "Green"
 Write-Host ""
 
+# Step: Install Windows Terminal
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing Windows Terminal..." "Cyan"
+$wtInstalled = $false
+if (Test-CommandExists "wt") {
+    Write-ColorOutput "Windows Terminal is already installed." "Yellow"
+    $wtInstalled = $true
+} else {
+    $wtInstalled = Install-WithWinget "Microsoft.WindowsTerminal" "Windows Terminal"
+    if ($wtInstalled) {
+        # Refresh PATH
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    }
+}
+Write-Host ""
+
 # Step: Install Git
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing Git..." "Cyan"

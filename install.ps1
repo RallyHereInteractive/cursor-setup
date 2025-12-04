@@ -268,6 +268,15 @@ if ($claudeCodeInstalled) {
 }
 Write-Host ""
 
+# Install Zed
+Write-ColorOutput "  Installing Zed..." "Yellow"
+$zedInstalled = Install-WithWinget "ZedIndustries.Zed" "Zed"
+if ($zedInstalled) {
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+Write-Host ""
+
 # Step: Install IDE extensions
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Installing IDE extensions..." "Cyan"

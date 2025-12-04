@@ -2561,6 +2561,60 @@ try {
 }
 Write-Host ""
 
+# Step: Install openupm-cli
+$stepNumber++
+Write-ColorOutput "Step ${stepNumber}: Installing openupm-cli..." "Cyan"
+try {
+    $openupmInstalled = $false
+    if (Test-CommandExists "openupm") {
+        Write-ColorOutput "openupm-cli is already installed." "Green"
+        $openupmVersion = openupm --version 2>&1
+        Write-ColorOutput "Current version: $openupmVersion" "Gray"
+        $openupmInstalled = $true
+    } else {
+        # Check if npm is available
+        if (-not (Test-CommandExists "npm")) {
+            Write-ColorOutput "npm is not available. Cannot install openupm-cli." "Red"
+            Write-ColorOutput "Please install Node.js first, then run this script again." "Yellow"
+        } else {
+            Write-ColorOutput "Installing openupm-cli via npm..." "Yellow"
+            try {
+                npm install -g openupm-cli 2>&1 | Out-Null
+                
+                if ($LASTEXITCODE -eq 0) {
+                    # Refresh PATH to include npm global bin directory
+                    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+                    
+                    # Wait a moment for PATH to propagate
+                    Start-Sleep -Seconds 2
+                    
+                    # Verify installation
+                    if (Test-CommandExists "openupm") {
+                        $openupmVersion = openupm --version 2>&1
+                        Write-ColorOutput "openupm-cli installed successfully!" "Green"
+                        Write-ColorOutput "Version: $openupmVersion" "Gray"
+                        $openupmInstalled = $true
+                    } else {
+                        Write-ColorOutput "Warning: openupm-cli installed but not yet available in PATH. You may need to restart your terminal." "Yellow"
+                        Write-ColorOutput "Continuing with installation..." "Yellow"
+                        $openupmInstalled = $true  # Assume it's installed, just not in PATH yet
+                    }
+                } else {
+                    Write-ColorOutput "Failed to install openupm-cli. Exit code: $LASTEXITCODE" "Red"
+                    Write-ColorOutput "You may need to install openupm-cli manually by running: npm install -g openupm-cli" "Yellow"
+                }
+            } catch {
+                Write-ColorOutput "Error installing openupm-cli: $_" "Red"
+                Write-ColorOutput "You may need to install openupm-cli manually by running: npm install -g openupm-cli" "Yellow"
+            }
+        }
+    }
+} catch {
+    Write-ColorOutput "Error during openupm-cli installation: $_" "Red"
+    Write-ColorOutput "Continuing with installation..." "Yellow"
+}
+Write-Host ""
+
 # Step: Final setup instructions
 $stepNumber++
 Write-ColorOutput "============================================" "Cyan"

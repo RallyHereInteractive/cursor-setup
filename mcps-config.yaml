@@ -44,5 +44,4 @@ servers:
     agents: ["codex"]
     repository: https://github.com/prophecygamestudio/unity-mcp
     command: uv
-    args: ["--directory", "~/Documents/gamedev-tools/mcp/UnityMCP/Server", "run", "-m", "src.main", "--transport", "stdio"]
-    env:
+    args: ["--directory", "~/Documents/gamedev-tools/mcp/UnityMCP/Server", "run", "mcp-for-unity", "--transport", "stdio"]

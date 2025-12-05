@@ -38,3 +38,11 @@ servers:
     repository: https://github.com/RallyHereInteractive/godot-mcp
     command: node
     args: ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]
+
+  - name: UnityMCP
+    enabled: true
+    agents: ["codex"]
+    repository: https://github.com/prophecygamestudio/unity-mcp
+    command: uv
+    args: ["--directory", "~/Documents/gamedev-tools/mcp/UnityMCP/Server", "run", "-m", "src.main", "--transport", "stdio"]
+    env:

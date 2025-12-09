@@ -2576,7 +2576,7 @@ Write-ColorOutput "4. Install any additional MCP servers as needed" "White"
 Write-ColorOutput "5. Godot is available at 'C:\Program Files\Godot\Godot.exe' or from the desktop shortcut" "White"
 Write-ColorOutput "6. Run 'claude' in your terminal to start Claude Code and authenticate" "White"
 Write-ColorOutput "7. If uv/Python was just installed, restart your terminal for PATH changes to take effect" "White"
-Write-ColorOutput "8. A template for creating Unity games is available for forking at https://github.com/prophecygamestudio/unity-template.git" "White"
+Write-ColorOutput "8. A template for creating Unity games is available as a template project at https://github.com/prophecygamestudio/unity-template.git" "White"
 Write-Host ""
 
 Write-ColorOutput "Setup complete!" "Green"

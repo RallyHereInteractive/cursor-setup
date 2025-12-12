@@ -1680,13 +1680,25 @@ function Merge-ClaudeCodeConfig {
     }
 
     try {
-        # Create the config file with empty object if it doesn't exist
+        # Create the config file with empty object if it doesn't exist or is empty/invalid
+        $needsInitialization = $false
         if (-not (Test-Path $ExistingConfigPath)) {
             Write-ColorOutput "Creating new Claude Code config at: $ExistingConfigPath" "Gray"
+            $needsInitialization = $true
+        } else {
+            # Check if file is empty or contains only whitespace
+            $existingContent = Get-Content $ExistingConfigPath -Raw -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($existingContent)) {
+                Write-ColorOutput "Found empty Claude Code config at: $ExistingConfigPath, initializing..." "Gray"
+                $needsInitialization = $true
+            } else {
+                Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
+            }
+        }
+
+        if ($needsInitialization) {
             # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
             [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
-        } else {
-            Write-ColorOutput "Found existing Claude Code config at: $ExistingConfigPath" "Gray"
         }
 
         # Get list of existing MCP servers for comparison
@@ -1788,13 +1800,25 @@ function Merge-AntigravityConfig {
     }
 
     try {
-        # Create the config file with empty object if it doesn't exist
+        # Create the config file with empty object if it doesn't exist or is empty/invalid
+        $needsInitialization = $false
         if (-not (Test-Path $ExistingConfigPath)) {
             Write-ColorOutput "Creating new Antigravity config at: $ExistingConfigPath" "Gray"
+            $needsInitialization = $true
+        } else {
+            # Check if file is empty or contains only whitespace
+            $existingContent = Get-Content $ExistingConfigPath -Raw -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($existingContent)) {
+                Write-ColorOutput "Found empty Antigravity config at: $ExistingConfigPath, initializing..." "Gray"
+                $needsInitialization = $true
+            } else {
+                Write-ColorOutput "Found existing Antigravity config at: $ExistingConfigPath" "Gray"
+            }
+        }
+
+        if ($needsInitialization) {
             # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
             [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
-        } else {
-            Write-ColorOutput "Found existing Antigravity config at: $ExistingConfigPath" "Gray"
         }
 
         # Get list of existing MCP servers for comparison
@@ -1896,13 +1920,25 @@ function Merge-ClaudeDesktopConfig {
     }
 
     try {
-        # Create the config file with empty object if it doesn't exist
+        # Create the config file with empty object if it doesn't exist or is empty/invalid
+        $needsInitialization = $false
         if (-not (Test-Path $ExistingConfigPath)) {
             Write-ColorOutput "Creating new Claude Desktop config at: $ExistingConfigPath" "Gray"
+            $needsInitialization = $true
+        } else {
+            # Check if file is empty or contains only whitespace
+            $existingContent = Get-Content $ExistingConfigPath -Raw -ErrorAction SilentlyContinue
+            if ([string]::IsNullOrWhiteSpace($existingContent)) {
+                Write-ColorOutput "Found empty Claude Desktop config at: $ExistingConfigPath, initializing..." "Gray"
+                $needsInitialization = $true
+            } else {
+                Write-ColorOutput "Found existing Claude Desktop config at: $ExistingConfigPath" "Gray"
+            }
+        }
+
+        if ($needsInitialization) {
             # Use .NET to write UTF8 without BOM (PowerShell's -Encoding UTF8 adds BOM which yq can't parse)
             [System.IO.File]::WriteAllText($ExistingConfigPath, '{}', [System.Text.UTF8Encoding]::new($false))
-        } else {
-            Write-ColorOutput "Found existing Claude Desktop config at: $ExistingConfigPath" "Gray"
         }
 
         # Get list of existing MCP servers for comparison

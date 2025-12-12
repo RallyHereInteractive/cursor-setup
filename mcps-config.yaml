@@ -33,7 +33,7 @@ servers:
 
   - name: godot-mcp
     enabled: true
-    agents: ["codex"]
+    agents: ["codex","antigravity"]
     buildCommands:
       - npm ci
       - npm run build
@@ -43,7 +43,7 @@ servers:
 
   - name: UnityMCP
     enabled: true
-    agents: ["codex"]
+    agents: ["codex","antigravity"]
     repository: https://github.com/prophecygamestudio/unity-mcp
     command: uvx
     args: ["--from", "git+https://github.com/prophecygamestudio/unity-mcp@v8.1.8#subdirectory=Server", "mcp-for-unity", "--transport", "stdio"]

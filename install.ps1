@@ -575,6 +575,40 @@ if ($vscodeInstalled -or (Test-Path $vscodePath)) {
 }
 Write-Host ""
 
+# Install extensions for Google Antigravity
+if ($antigravityInstalled) {
+    Write-ColorOutput "  Installing extensions for Google Antigravity..." "Yellow"
+    if (Test-CommandExists "antigravity") {
+        try {
+            # Get list of installed extensions once
+            $installedExtensions = antigravity --list-extensions 2>&1
+
+            foreach ($extensionId in $extensions) {
+                if ($installedExtensions -like "*$extensionId*") {
+                    Write-ColorOutput "    Extension '$extensionId' is already installed in Google Antigravity." "Green"
+                } else {
+                    Write-ColorOutput "    Installing '$extensionId' in Google Antigravity..." "Yellow"
+                    $installOutput = antigravity --install-extension $extensionId --force 2>&1
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-ColorOutput "    Extension '$extensionId' installed successfully in Google Antigravity!" "Green"
+                    } else {
+                        Write-ColorOutput "    Warning: Failed to install extension '$extensionId' in Google Antigravity. Exit code: $LASTEXITCODE" "Yellow"
+                        Write-ColorOutput "    Output: $installOutput" "Gray"
+                    }
+                }
+            }
+        } catch {
+            Write-ColorOutput "  Warning: Could not install extensions in Google Antigravity: $_" "Yellow"
+            Write-ColorOutput "  You may need to install them manually from the extension marketplace." "Yellow"
+        }
+    } else {
+        Write-ColorOutput "  Warning: 'antigravity' command not found in PATH. You may need to restart your terminal or install the extensions manually." "Yellow"
+    }
+} else {
+    Write-ColorOutput "  Google Antigravity is not installed, skipping extension installation." "Gray"
+}
+Write-Host ""
+
 # Function to update IDE user settings
 function Update-IDEUserSettings {
     param(

@@ -7,4 +7,6 @@ One-line install for Windows:
 iex (irm 'https://raw.githubusercontent.com/prophecygamestudio/cursor-setup/main/install.ps1')
 ```
 
-**Or simply download and run `install.ps1` from this repository.**
+## Installation Location
+
+Files are installed to `%LOCALAPPDATA%\gamedev-tools\` (typically `C:\Users\<username>\AppData\Local\gamedev-tools\`).

@@ -18,12 +18,11 @@ param(
 # Set execution policy for the current process
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process -Force
 
-# Navigate to Documents folder and set default clone directory if not provided
-$documentsPath = [Environment]::GetFolderPath("MyDocuments")
-Set-Location $documentsPath
+# Set default clone directory to LocalAppData (not synced by cloud services)
+$localAppData = $env:LOCALAPPDATA
 
 if ([string]::IsNullOrEmpty($CloneDirectory)) {
-    $CloneDirectory = "$documentsPath\gamedev-tools\cursor-setup"
+    $CloneDirectory = "$localAppData\gamedev-tools\cursor-setup"
 }
 
 # Check if running as Administrator and request elevation if needed
@@ -1011,8 +1010,8 @@ function Copy-CustomMCPs {
 # Step: Clone custom MCPs
 $stepNumber++
 Write-ColorOutput "Step ${stepNumber}: Cloning custom MCP servers..." "Cyan"
-$documentsPath = [Environment]::GetFolderPath("MyDocuments")
-$mcpBaseDirectory = "$documentsPath\gamedev-tools\mcp"
+$localAppData = $env:LOCALAPPDATA
+$mcpBaseDirectory = "$localAppData\gamedev-tools\mcp"
 # Try unified config first, fall back to legacy mcps.yaml
 $customMcpsConfigPath = "$CloneDirectory\mcps-config.yaml"
 if (-not (Test-Path $customMcpsConfigPath)) {
@@ -1120,6 +1119,7 @@ function Convert-MCPPaths {
     }
 
     $homePath = $env:USERPROFILE
+    $localAppDataPath = $env:LOCALAPPDATA
 
     # Helper function to normalize a single path string
     function Convert-PathString {
@@ -1127,6 +1127,13 @@ function Convert-MCPPaths {
 
         if ([string]::IsNullOrEmpty($Path)) {
             return $Path
+        }
+
+        # Replace {LOCALAPPDATA} placeholder with actual path
+        if ($Path -match '\{LOCALAPPDATA\}') {
+            $Path = $Path -replace '\{LOCALAPPDATA\}', $localAppDataPath
+            # Normalize path separators for Windows
+            return $Path -replace '/', '\'
         }
 
         # Replace ~/ or ~\ at the start with home directory path

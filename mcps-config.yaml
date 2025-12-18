@@ -23,11 +23,13 @@ servers:
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
 
   # Custom MCP servers that need cloning/building
+  # Note: {LOCALAPPDATA} expands to %LOCALAPPDATA% (e.g., C:\Users\<user>\AppData\Local)
+  # This location is never synced by cloud services (OneDrive, Dropbox, etc.)
   - name: rallyhere-comfy
     enabled: true
     repository: https://github.com/prophecygamestudio/comfyui-mcp-server
     command: uv
-    args: ["--directory", "~/Documents/gamedev-tools/mcp/rallyhere-comfy", "run", "src\\server.py"]
+    args: ["--directory", "{LOCALAPPDATA}/gamedev-tools/mcp/rallyhere-comfy", "run", "src\\server.py"]
     env:
       comfyui_host: sparky1.hirezcorp.com
 
@@ -39,7 +41,7 @@ servers:
       - npm run build
     repository: https://github.com/RallyHereInteractive/godot-mcp
     command: node
-    args: ["~/Documents/gamedev-tools/mcp/godot-mcp/build/index.js"]
+    args: ["{LOCALAPPDATA}/gamedev-tools/mcp/godot-mcp/build/index.js"]
 
   - name: UnityMCP
     enabled: true

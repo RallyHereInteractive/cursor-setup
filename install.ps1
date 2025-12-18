@@ -2103,9 +2103,12 @@ function Convert-MCPToCodexToml {
                 if ($server.args) {
                     # Convert args array to TOML format
                     $argsList = @()
+                    $localAppDataPath = $env:LOCALAPPDATA
                     foreach ($arg in $server.args) {
+                        # Expand {LOCALAPPDATA} placeholder
+                        $expandedArg = $arg -replace '\{LOCALAPPDATA\}', $localAppDataPath
                         # Convert backslashes to forward slashes for TOML compatibility
-                        $normalizedArg = $arg -replace '\\', '/'
+                        $normalizedArg = $expandedArg -replace '\\', '/'
                         # Escape quotes in arguments
                         $escapedArg = $normalizedArg -replace '"', '\"'
                         $argsList += "`"$escapedArg`""

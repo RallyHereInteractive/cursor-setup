@@ -2446,8 +2446,10 @@ function Merge-MCPConfig {
         try {
             $newContent = Get-Content $NewConfigPath -Raw | ConvertFrom-Json
             if ($newContent.mcpServers) {
+                $serverNames = $newContent.mcpServers.PSObject.Properties.Name
+                Write-ColorOutput "  Found $($serverNames.Count) server(s) in new config: $($serverNames -join ', ')" "Gray"
                 # All configured servers will be added/updated (overwriting existing by name)
-                foreach ($serverName in $newContent.mcpServers.PSObject.Properties.Name) {
+                foreach ($serverName in $serverNames) {
                     # Normalize paths before adding
                     $normalizedConfig = Convert-MCPPaths -McpServerConfig $newContent.mcpServers.$serverName
                     if ($mergedServers.ContainsKey($serverName)) {
@@ -2455,12 +2457,21 @@ function Merge-MCPConfig {
                     } else {
                         Write-ColorOutput "  Adding MCP server: $serverName" "Green"
                     }
+                    # Show the args for debugging
+                    if ($normalizedConfig.args) {
+                        $argsPreview = ($normalizedConfig.args | Select-Object -First 3) -join " "
+                        Write-ColorOutput "    Args: $argsPreview ..." "Gray"
+                    }
                     $mergedServers[$serverName] = $normalizedConfig
                 }
+            } else {
+                Write-ColorOutput "  Warning: New config has no mcpServers section" "Yellow"
             }
         } catch {
             Write-ColorOutput "Warning: Could not parse new MCP config: $_" "Yellow"
         }
+    } else {
+        Write-ColorOutput "  Warning: New config path not found: $NewConfigPath" "Yellow"
     }
 
     # Save merged config
@@ -2554,13 +2565,17 @@ try {
             if ($useUnifiedConfig) {
                 # Use unified config - convert to Cursor JSON
                 try {
+                    Write-ColorOutput "  Converting unified config to Cursor JSON format..." "Gray"
                     $cursorJsonConfig = Convert-MCPToCursorJson -YamlConfigPath $unifiedMcpConfigPath
                     if ($null -ne $cursorJsonConfig) {
                         # Create temporary JSON file for merging
                         $tempJsonPath = "$env:TEMP\cursor-mcp-temp.json"
                         $cursorJsonConfig | ConvertTo-Json -Depth 10 | Set-Content $tempJsonPath -Encoding UTF8
-                        Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $tempJsonPath | Out-Null
+                        Write-ColorOutput "  Merging Cursor MCP configuration..." "Gray"
+                        Merge-MCPConfig -ExistingConfigPath $cursorMcpConfigPath -NewConfigPath $tempJsonPath
                         Remove-Item $tempJsonPath -ErrorAction SilentlyContinue
+                    } else {
+                        Write-ColorOutput "  Warning: Unified config conversion returned null" "Yellow"
                     }
                 } catch {
                     Write-ColorOutput "Warning: Could not convert unified config to Cursor JSON: $_" "Yellow"
